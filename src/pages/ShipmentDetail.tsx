@@ -86,7 +86,7 @@ export default function ShipmentDetail() {
         <table className="data mt-2">
           <thead>
             <tr>
-              <th>Container</th><th>Status</th><th>ETA</th><th>Discharged</th><th title="Last Free Day: enter from your forwarder's arrival notice">LFD</th><th>Terminal</th><th>ELM delivery appt</th><th>Update</th>
+              <th>Container</th><th>Status</th><th>ETA</th><th>Discharged</th><th>Terminal</th><th>ELM delivery appt</th><th>Update</th>
             </tr>
           </thead>
           <tbody>
@@ -154,9 +154,6 @@ function ContainerRow({ c, onChange }: { c: Container; onChange: () => void }) {
       <td><MilestoneBadge milestone={c.milestone} /> <Holds holds={c.holds} /></td>
       <td className="whitespace-nowrap">{fmtDate(c.eta)}</td>
       <td className="whitespace-nowrap">{fmtDate(c.discharged_at)}</td>
-      <td className="whitespace-nowrap">
-        <EditableDate value={c.lfd} onSave={async (v) => save({ lfd: v })} />
-      </td>
       <td className="text-xs">{c.terminal ?? "—"}</td>
       <td>
         <input

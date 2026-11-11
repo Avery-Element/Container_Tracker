@@ -19,7 +19,7 @@ Internal web app that tracks inbound POs and containers from booking to receipt 
 | Loaded → Departed → Transshipment → Arrived → Discharged → Out-gated | TimeToCargo, automatically (carrier data, refreshed ~twice a day) |
 | Delivered to ELM → Received | You (container row → "Set status…") |
 
-**Entered by hand:** ELM delivery appointment and Last Free Day (LFD). Click the cell in the Shipments table or on the shipment page. TimeToCargo doesn't provide terminal LFD or holds, so take them from your forwarder's arrival notice.
+**Entered by hand:** ELM delivery appointment. Click the cell in the Shipments table or on the shipment page. (Last Free Day is managed outside this app; TimeToCargo doesn't provide it.)
 
 **How each shipment gets tracked.** If the shipment has a carrier master BL (`EGLV…`, `COSU…`, `ONEY…`, `OOLU…`, `YMJA…`, `HDMU…`), the app tracks the BL. That counts as **one** TimeToCargo shipment however many containers it covers. Forwarder house bills (`SHZS…`, `OT…`, `THI…`) aren't visible to carriers, so for those it tracks each container number, and each container counts separately.
 
@@ -29,13 +29,12 @@ Internal web app that tracks inbound POs and containers from booking to receipt 
 - the ETA moves by more than a day;
 - a container is discharged;
 - the carrier reports the shipment as stuck/delayed;
-- the Last Free Day you entered is two days away or less and the container hasn't been picked up;
 - tracking fails.
 
 **Daily digest** at 7am Pacific: everything in transit, plus POs awaiting booking.
 
 **Scheduled jobs** (Cron Triggers):
-- every 6 hours: start tracking any new active shipments, refresh all tracked ones in one API call (a backup in case webhooks are missed), archive finished ones, and check Last Free Days;
+- every 6 hours: start tracking any new active shipments, refresh all tracked ones in one API call (a backup in case webhooks are missed), and archive finished ones;
 - once a day: send the digest.
 
 ## Local development
@@ -96,7 +95,7 @@ To test live tracking locally, copy `.dev.vars.example` to `.dev.vars`, fill in 
    5. Use TimeToCargo's "send test" to confirm delivery. `npx wrangler tail` should show the request returning 200; a 401 means the secret doesn't match.
    6. Active shipments start tracking at the next 6-hourly run, or straight away with **Sync tracking**.
 
-**Testing the scheduled jobs by hand:** `POST /api/admin/digest` and `POST /api/admin/check-lfd`. These are behind Access.
+**Testing the scheduled jobs by hand:** `POST /api/admin/digest`. This is behind Access.
 
 ## Project layout
 
@@ -108,7 +107,7 @@ worker/index.ts              Worker entry: webhook, Access check, API, cron hand
 worker/routes/api.ts         REST API used by the UI
 worker/lib/timetocargo.ts    TimeToCargo API client + webhook signature check
 worker/lib/sync.ts           start/refresh/archive tracking, webhook handling, change detection
-worker/lib/alerts.ts         alert dedupe, LFD check, daily digest
+worker/lib/alerts.ts         alert dedupe, daily digest
 src/                         React UI (Dashboard, Shipments, Shipment detail, POs, New shipment)
 tests/                       vitest: parser + sync/alert logic
 ```

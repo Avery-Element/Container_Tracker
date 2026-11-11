@@ -5,7 +5,7 @@ import { milestoneLabel } from "../../shared/milestones";
 export interface NewAlert {
   shipmentId: number;
   containerId: number | null;
-  kind: "eta_change" | "discharged" | "hold" | "hold_released" | "lfd_soon" | "tracking_failed";
+  kind: "eta_change" | "discharged" | "hold" | "hold_released" | "tracking_failed";
   message: string;
   dedupeKey: string;
 }
@@ -40,38 +40,11 @@ export async function raiseAlerts(env: Env, alerts: NewAlert[]): Promise<number>
   return fresh.length;
 }
 
-function daysBetween(a: string, b: string) {
-  return (Date.parse(b.slice(0, 10)) - Date.parse(a.slice(0, 10))) / 86_400_000;
-}
-
-/** Containers whose Last Free Day is within 2 days and haven't left the terminal. */
-export async function checkLastFreeDays(env: Env, today = new Date().toISOString().slice(0, 10)) {
-  const { results } = await env.DB.prepare(
-    `SELECT c.id, c.number, c.lfd, c.shipment_id FROM containers c
-     JOIN shipments s ON s.id = c.shipment_id
-     WHERE s.status = 'active' AND c.lfd IS NOT NULL AND c.outgated_at IS NULL
-       AND c.milestone NOT IN ('outgated','delivered','received')`,
-  ).all<{ id: number; number: string; lfd: string; shipment_id: number }>();
-  const alerts: NewAlert[] = [];
-  for (const c of results) {
-    const d = daysBetween(today, c.lfd);
-    if (d <= 2)
-      alerts.push({
-        shipmentId: c.shipment_id,
-        containerId: c.id,
-        kind: "lfd_soon",
-        message: `${c.number}: Last Free Day ${c.lfd.slice(0, 10)}${d < 0 ? " (PASSED)" : ""} and not picked up`,
-        dedupeKey: `lfd:${c.id}:${c.lfd.slice(0, 10)}`,
-      });
-  }
-  return raiseAlerts(env, alerts);
-}
-
 /** Daily digest of all active shipments, sorted by ETA. */
 export async function sendDigest(env: Env) {
   const { results } = await env.DB.prepare(
     `SELECT s.id, s.carrier_name, s.mbl, s.vessel, s.pod, s.mode, s.reference,
-            COALESCE(c.eta, s.eta) AS due, c.number, c.milestone, c.lfd, c.holds, c.elm_delivery_appt,
+            COALESCE(c.eta, s.eta) AS due, c.number, c.milestone, c.holds, c.elm_delivery_appt,
             (SELECT group_concat(po.po_number, ', ') FROM shipment_pos sp JOIN purchase_orders po ON po.id = sp.po_id WHERE sp.shipment_id = s.id) AS pos,
             (SELECT v.name FROM shipment_pos sp JOIN purchase_orders po ON po.id = sp.po_id JOIN vendors v ON v.id = po.vendor_id WHERE sp.shipment_id = s.id LIMIT 1) AS vendor
      FROM shipments s LEFT JOIN containers c ON c.shipment_id = s.id
@@ -94,7 +67,7 @@ export async function sendDigest(env: Env) {
         <td><a href="${esc(env.APP_URL)}/shipments/${r.id}">${esc(r.number ?? r.reference ?? r.mbl ?? "—")}</a></td>
         <td>${esc(r.pos)}</td><td>${esc(r.vendor)}</td><td>${esc(r.carrier_name ?? r.mode)}</td>
         <td>${esc(milestoneLabel(r.milestone ?? ""))}</td>
-        <td>${esc(r.lfd?.slice(0, 10) ?? "")}</td><td style="color:#b91c1c">${esc(holds)}</td>
+        <td style="color:#b91c1c">${esc(holds)}</td>
         <td>${esc(r.elm_delivery_appt?.replace("T", " ") ?? "")}</td></tr>`;
     })
     .join("");
@@ -103,7 +76,7 @@ export async function sendDigest(env: Env) {
     .join("");
   const style = `style="border-collapse:collapse;font:13px sans-serif" border="1" cellpadding="4"`;
   const html = `<h2 style="font-family:sans-serif">In transit (${results.length})</h2>
-    <table ${style}><tr><th>ETA</th><th>Container</th><th>PO</th><th>Vendor</th><th>Carrier</th><th>Status</th><th>LFD</th><th>Holds</th><th>ELM appt</th></tr>${rows}</table>
+    <table ${style}><tr><th>ETA</th><th>Container</th><th>PO</th><th>Vendor</th><th>Carrier</th><th>Status</th><th>Holds</th><th>ELM appt</th></tr>${rows}</table>
     <h2 style="font-family:sans-serif">Awaiting booking (${pending.length})</h2>
     <table ${style}><tr><th>PO</th><th>Vendor</th><th>CRD</th></tr>${pendingRows}</table>`;
   const date = new Date().toISOString().slice(0, 10);

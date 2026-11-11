@@ -130,7 +130,7 @@ export default function Shipments() {
               <SortHeader label="Status" k="status" sort={sort} setSort={setSort} />
               <SortHeader label="ETA (first published)" k="eta_first" sort={sort} setSort={setSort} />
               <SortHeader label="ETA (current)" k="eta" sort={sort} setSort={setSort} />
-              <th>LFD</th><th>ELM delivery</th><th>Notes</th><th>Tracking</th>
+              <th>ELM delivery</th><th>Notes</th><th>Tracking</th>
             </tr>
           </thead>
           <tbody>
@@ -148,11 +148,6 @@ export default function Shipments() {
                 </td>
                 <td className="whitespace-nowrap">{fmtDate(firstEta(r))}</td>
                 <td className="whitespace-nowrap">{fmtDate(r.c?.eta ?? r.s.eta)}</td>
-                <td className="whitespace-nowrap">
-                  {r.c ? (
-                    <EditableDate value={r.c.lfd} onSave={async (v) => (await api.patch(`/containers/${r.c!.id}`, { lfd: v }), reload())} />
-                  ) : "—"}
-                </td>
                 <td className="whitespace-nowrap">
                   {r.c ? (
                     <EditableDate

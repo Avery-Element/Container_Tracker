@@ -23,9 +23,6 @@ function eta(r: Row) {
 function riskReasons(r: Row, today: string): string[] {
   const out: string[] = [];
   if (r.c?.holds) out.push("On hold");
-  const lfd = daysFrom(today, r.c?.lfd);
-  if (lfd !== null && lfd <= 3 && !["outgated", "delivered", "received"].includes(r.c!.milestone))
-    out.push(lfd < 0 ? `LFD passed ${-lfd}d ago` : `LFD in ${lfd}d`);
   const slip = daysFrom(r.s.original_eta?.slice(0, 10) ?? "", r.s.eta);
   if (r.s.original_eta && slip !== null && slip > 1) out.push(`ETA slipped ${slip}d`);
   if (r.s.tracking_status === "failed") out.push("Tracking failed");
@@ -74,7 +71,7 @@ export default function Dashboard() {
           <table className="data mt-2">
             <thead>
               <tr>
-                <th>Container</th><th>PO</th><th>Vendor</th><th>Status</th><th>Why</th><th>ETA</th><th>LFD</th>
+                <th>Container</th><th>PO</th><th>Vendor</th><th>Status</th><th>Why</th><th>ETA</th>
               </tr>
             </thead>
             <tbody>
@@ -86,7 +83,6 @@ export default function Dashboard() {
                   <td>{r.c && <MilestoneBadge milestone={r.c.milestone} />} <Holds holds={r.c?.holds ?? null} /></td>
                   <td className="font-medium text-red-700">{why.join(" · ")}</td>
                   <td>{fmtDate(eta(r))}</td>
-                  <td>{fmtDate(r.c?.lfd)}</td>
                 </tr>
               ))}
             </tbody>

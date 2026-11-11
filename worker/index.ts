@@ -4,7 +4,7 @@ import { api } from "./routes/api";
 import { verifyAccess } from "./lib/access";
 import { verifyWebhookSignature } from "./lib/timetocargo";
 import { handleWebhook, syncAll } from "./lib/sync";
-import { checkLastFreeDays, sendDigest } from "./lib/alerts";
+import { sendDigest } from "./lib/alerts";
 
 const app = new Hono<{ Bindings: Env; Variables: { user: string } }>();
 
@@ -63,7 +63,6 @@ export default {
       ctx.waitUntil(
         (async () => {
           console.log("sync:", await syncAll(env).catch((e) => String(e)));
-          await checkLastFreeDays(env);
           await sendDigest(env);
         })(),
       );
@@ -71,7 +70,6 @@ export default {
       ctx.waitUntil(
         (async () => {
           console.log("sync:", await syncAll(env).catch((e) => String(e)));
-          await checkLastFreeDays(env);
         })(),
       );
     }

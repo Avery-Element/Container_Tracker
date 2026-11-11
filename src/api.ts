@@ -7,7 +7,6 @@ export interface Container {
   original_eta?: string | null;
   ata?: string | null;
   discharged_at?: string | null;
-  lfd: string | null;
   holds: string | null;
   available?: number | null;
   outgated_at?: string | null;

@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { Env } from "../env";
 import { checkPendingTasks, refreshAll, startTracking, stopTracking, syncAll } from "../lib/sync";
 import { getBatch } from "../lib/timetocargo";
-import { checkLastFreeDays, sendDigest } from "../lib/alerts";
+import { sendDigest } from "../lib/alerts";
 import { normalizeContainerNumber, isValidContainerNumber } from "../../shared/container-number";
 import { carrierByScac, carrierFromMbl } from "../../shared/carriers";
 import { MILESTONE_ORDER } from "../../shared/milestones";
@@ -20,7 +20,7 @@ const SHIPMENT_SELECT = `
     (SELECT v.name FROM shipment_pos sp JOIN purchase_orders po ON po.id = sp.po_id
        JOIN vendors v ON v.id = po.vendor_id WHERE sp.shipment_id = s.id LIMIT 1) AS vendor,
     (SELECT json_group_array(json_object('id', c.id, 'number', c.number, 'number_valid', c.number_valid,
-        'milestone', c.milestone, 'eta', c.eta, 'original_eta', c.original_eta, 'lfd', c.lfd, 'holds', c.holds,
+        'milestone', c.milestone, 'eta', c.eta, 'original_eta', c.original_eta, 'holds', c.holds,
         'elm_delivery_appt', c.elm_delivery_appt, 'size', c.size, 'available', c.available))
        FROM containers c WHERE c.shipment_id = s.id) AS containers_json,
     (SELECT json_object('body', n.body, 'author', n.author, 'created_at', n.created_at)
@@ -287,7 +287,7 @@ api.post("/shipments/:id/refresh", async (c) => {
   }
 });
 
-const CONTAINER_FIELDS = ["milestone", "elm_delivery_appt", "received_at", "size", "lfd"] as const;
+const CONTAINER_FIELDS = ["milestone", "elm_delivery_appt", "received_at", "size"] as const;
 api.patch("/containers/:id", async (c) => {
   const id = Number(c.req.param("id"));
   const body = await c.req.json<Record<string, string | null>>();
@@ -437,4 +437,3 @@ api.post("/admin/sync-all", async (c) => {
     return c.json({ ok: false, message: e instanceof Error ? e.message : String(e) }, 502);
   }
 });
-api.post("/admin/check-lfd", async (c) => c.json({ alerts: await checkLastFreeDays(c.env) }));
