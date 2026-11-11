@@ -1,0 +1,46 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "container-tracker",
+	"main": "worker/index.ts",
+	"compatibility_date": "2026-10-01",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"assets": {
+		"not_found_handling": "single-page-application",
+		"run_worker_first": [
+			"/api/*"
+		]
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "container-tracker",
+			"database_id": "b6f0b666-fbad-4948-bfc4-7b48f77d4ede",
+			"migrations_dir": "migrations"
+		}
+	],
+	// Served only on the custom domain, which Cloudflare Access protects.
+	"routes": [
+		{ "pattern": "tracker.element-tools.app", "custom_domain": true }
+	],
+	"workers_dev": false,
+	"preview_urls": false,
+	"triggers": {
+		// every 6h refresh; 15:00 UTC = 7am Pacific (PST) daily digest
+		"crons": [
+			"0 */6 * * *",
+			"0 15 * * *"
+		]
+	},
+	"vars": {
+		"ALERT_FROM": "Container Tracker <tracker@element-tools.app>",
+		"ALERT_TO": "ouriela@elementcontract.com,matp@elementcontract.com,avery@elementcontract.com",
+		"APP_URL": "https://tracker.element-tools.app",
+		// Cloudflare Access (Zero Trust) application protecting tracker.element-tools.app
+		"ACCESS_TEAM_DOMAIN": "avery-dec.cloudflareaccess.com",
+		"ACCESS_AUD": "a9b0059503e2697068cf3b54290e388afbaf80647f7a4c396f1ee33cea5452e5"
+	}
+	// Secrets (set with `npx wrangler secret put NAME`):
+	//   TIMETOCARGO_API_KEY, TIMETOCARGO_WEBHOOK_SECRET, RESEND_API_KEY
+}
