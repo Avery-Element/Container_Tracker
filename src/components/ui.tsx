@@ -175,7 +175,7 @@ export function EditableDate({
       type="button"
       onClick={() => setEditing(true)}
       title="Click to edit"
-      className={`rounded px-1 text-left hover:bg-teal-50 ${current ? "" : "text-xs text-teal-700"}`}
+      className={`min-h-6 rounded px-1 text-left hover:bg-teal-50 focus-visible:outline-2 focus-visible:outline-teal-600 ${current ? "" : "text-xs text-teal-700"}`}
     >
       {current ? fmtDate(current, withTime) : placeholder}
     </button>

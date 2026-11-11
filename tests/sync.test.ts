@@ -25,6 +25,7 @@ beforeEach(() => {
   db = new DatabaseSync(":memory:");
   db.exec(readFileSync("migrations/0001_init.sql", "utf8"));
   db.exec(readFileSync("migrations/0002_timetocargo.sql", "utf8"));
+  db.exec(readFileSync("migrations/0003_original_eta_source.sql", "utf8"));
   db.exec(`INSERT INTO shipments (id, mode, carrier_scac, mbl, eta, status) VALUES (1, 'ocean', 'EGLV', 'EGLV1', '2026-11-20', 'active');
            INSERT INTO containers (id, shipment_id, number, milestone, eta) VALUES (1, 1, 'TGHU5303645', 'departed', '2026-11-20');`);
   env = { DB: fakeD1(db), ALERT_FROM: "x", ALERT_TO: "", APP_URL: "http://localhost" } as Env;
@@ -116,6 +117,44 @@ describe("applyTracking (TimeToCargo)", () => {
   it("ignores an origin gate-out before arrival", async () => {
     await applyTracking(env, 1, data([ev("CGO", "2026-10-18T09:00:00", true), ...departed]));
     expect(container().milestone).toBe("departed");
+  });
+
+  describe("ETA (first published)", () => {
+    const first = () => ({
+      ship: db.prepare("SELECT original_eta, original_eta_source FROM shipments WHERE id=1").get(),
+      cont: db.prepare("SELECT original_eta, original_eta_source FROM containers WHERE id=1").get(),
+    });
+    const notes = () => db.prepare("SELECT author, body FROM notes").all() as { author: string; body: string }[];
+
+    it("is set from the carrier's first ETA and then stays fixed", async () => {
+      await applyTracking(env, 1, data([...departed, ev("VAD", "2026-11-12T08:00:00", false)]));
+      await applyTracking(env, 1, data([...departed, ev("VAD", "2026-11-16T08:00:00", false)]));
+      const fixed = { original_eta: "2026-11-12T08:00:00", original_eta_source: "carrier" };
+      expect(first()).toEqual({ ship: fixed, cont: fixed });
+      expect(notes()).toEqual([]);
+    });
+
+    it("carrier replaces a manually entered value once, with a note", async () => {
+      db.exec(`UPDATE shipments SET original_eta = '2026-11-01', original_eta_source = 'manual' WHERE id = 1;
+               UPDATE containers SET original_eta = '2026-11-01', original_eta_source = 'manual' WHERE id = 1;`);
+      await applyTracking(env, 1, data([...departed, ev("VAD", "2026-11-12T08:00:00", false)]));
+      await applyTracking(env, 1, data([...departed, ev("VAD", "2026-11-16T08:00:00", false)]));
+      const fixed = { original_eta: "2026-11-12T08:00:00", original_eta_source: "carrier" };
+      expect(first()).toEqual({ ship: fixed, cont: fixed });
+      expect(notes()).toEqual([
+        {
+          author: "carrier",
+          body: "ETA (first published) overwritten by carrier: was Nov 1, 2026 (entered manually), now Nov 12, 2026.",
+        },
+      ]);
+    });
+
+    it("no note when the manual date already matches the carrier's", async () => {
+      db.exec(`UPDATE shipments SET original_eta = '2026-11-12', original_eta_source = 'manual' WHERE id = 1;`);
+      await applyTracking(env, 1, data([...departed, ev("VAD", "2026-11-12T08:00:00", false)]));
+      expect(first().ship).toEqual({ original_eta: "2026-11-12T08:00:00", original_eta_source: "carrier" });
+      expect(notes()).toEqual([]);
+    });
   });
 
   it("never overrides manual delivered/received", async () => {

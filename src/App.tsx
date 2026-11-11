@@ -1,4 +1,4 @@
-import { NavLink, Route, Routes } from "react-router-dom";
+import { NavLink, Route, Routes, useLocation } from "react-router-dom";
 import Dashboard from "./pages/Dashboard";
 import Shipments from "./pages/Shipments";
 import ShipmentDetail from "./pages/ShipmentDetail";
@@ -14,10 +14,13 @@ const nav = [
 
 export default function App() {
   const { data: me } = useApi<{ email: string }>("/me");
+  // The shipments table is wide and data-dense, so it uses the full screen width;
+  // other pages keep a readable max width.
+  const width = useLocation().pathname === "/shipments" ? "max-w-none" : "max-w-7xl";
   return (
     <div className="min-h-screen">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
+        <div className={`mx-auto flex ${width} flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3 sm:px-6`}>
           <div className="flex items-center gap-2 font-semibold text-teal-800">
             <svg width="22" height="22" viewBox="0 0 32 32" aria-hidden>
               <rect x="2" y="9" width="28" height="16" rx="2" fill="currentColor" />
@@ -44,7 +47,7 @@ export default function App() {
           <div className="ml-auto text-xs text-slate-500">{me?.email}</div>
         </div>
       </header>
-      <main className="mx-auto max-w-7xl px-4 py-6">
+      <main className={`mx-auto ${width} px-4 py-4 sm:px-6 sm:py-6`}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/shipments" element={<Shipments />} />

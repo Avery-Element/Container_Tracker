@@ -5,15 +5,19 @@ import { EditableDate, ErrorBox, fmtDate, Holds, MilestoneBadge, TrackingStatus,
 import { MILESTONES, MILESTONE_ORDER } from "../../shared/milestones";
 import { ShipLink, type Row } from "./Dashboard";
 
-type SortKey = "entered" | "eta" | "status";
+type SortKey = "entered" | "eta_first" | "eta" | "status";
 type Sort = { key: SortKey; dir: "asc" | "desc" } | null;
 
 /** Earliest order date across the shipment's POs (when the PO was entered). */
 const enteredDate = (r: Row) =>
   r.s.pos.map((p) => p.order_date).filter((d): d is string => !!d).sort()[0] ?? null;
 
+/** First ETA ever recorded for the container (or shipment); never changes once set. */
+const firstEta = (r: Row) => r.c?.original_eta ?? r.s.original_eta;
+
 const SORT_VALUE: Record<SortKey, (r: Row) => string | number | null> = {
   entered: enteredDate,
+  eta_first: (r) => firstEta(r),
   eta: (r) => r.c?.eta ?? r.s.eta,
   // Shipping order (Booked → Loaded → … → Received); rows without a container go last.
   status: (r) => (r.c ? MILESTONE_ORDER[r.c.milestone] ?? null : null),
@@ -37,11 +41,13 @@ function SortHeader({ label, k, sort, setSort }: { label: string; k: SortKey; so
     <th aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : undefined}>
       <button
         type="button"
-        className="inline-flex items-center gap-1 whitespace-nowrap hover:text-slate-900"
+        className="-mx-1 inline-flex min-h-6 items-center gap-1 rounded px-1 uppercase hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-teal-600"
         onClick={() => setSort({ key: k, dir: active && sort.dir === "asc" ? "desc" : "asc" })}
       >
         {label}
-        <span className={active ? "" : "text-slate-300"}>{active ? (sort.dir === "asc" ? "▲" : "▼") : "↕"}</span>
+        <span aria-hidden className={active ? "text-teal-700" : "text-slate-400"}>
+          {active ? (sort.dir === "asc" ? "▲" : "▼") : "↕"}
+        </span>
       </button>
     </th>
   );
@@ -90,12 +96,18 @@ export default function Shipments() {
           ))}
         </div>
         <input
-          className="input max-w-xs"
+          className="input min-w-0 flex-1 basis-56 sm:max-w-xs"
           placeholder="Search PO, container, BL, vendor, notes…"
+          aria-label="Search shipments"
           value={text}
           onChange={(e) => setText(e.target.value)}
         />
-        <select className="input max-w-48" value={milestone} onChange={(e) => setMilestone(e.target.value)}>
+        <select
+          className="input w-auto max-w-48"
+          aria-label="Filter by status"
+          value={milestone}
+          onChange={(e) => setMilestone(e.target.value)}
+        >
           <option value="">All statuses</option>
           {MILESTONES.filter((m) => m.key !== "po_placed" && m.key !== "cargo_ready").map((m) => (
             <option key={m.key} value={m.key}>{m.label}</option>
@@ -106,15 +118,18 @@ export default function Shipments() {
         <Link to="/shipments/new" className="btn-primary">+ New shipment</Link>
       </div>
       <ErrorBox error={error} />
-      <div className="card overflow-x-auto">
-        <table className="data">
+      {/* Scroll box sized to the screen so the header row, the container column and the
+          sideways scrollbar are always in view, instead of the scrollbar sitting below the last row. */}
+      <div className="card max-h-[75dvh] min-h-80 overflow-auto sm:max-h-[calc(100dvh-9rem)]">
+        <table className="data sticky-frame">
           <thead>
             <tr>
               <th>Container / ref</th><th>PO</th>
               <SortHeader label="Date entered" k="entered" sort={sort} setSort={setSort} />
               <th>Vendor</th><th>Carrier</th><th>BL / booking</th>
               <SortHeader label="Status" k="status" sort={sort} setSort={setSort} />
-              <SortHeader label="ETA" k="eta" sort={sort} setSort={setSort} />
+              <SortHeader label="ETA (first published)" k="eta_first" sort={sort} setSort={setSort} />
+              <SortHeader label="ETA (current)" k="eta" sort={sort} setSort={setSort} />
               <th>LFD</th><th>ELM delivery</th><th>Notes</th><th>Tracking</th>
             </tr>
           </thead>
@@ -124,13 +139,14 @@ export default function Shipments() {
                 <td className="whitespace-nowrap"><ShipLink r={r} /></td>
                 <td>{r.s.pos.map((p) => p.po_number).join(", ")}</td>
                 <td className="whitespace-nowrap">{fmtDate(enteredDate(r))}</td>
-                <td>{r.s.vendor}</td>
-                <td>{r.s.carrier_name ?? <span className="capitalize text-slate-500">{r.s.mode}</span>}</td>
+                <td className="whitespace-nowrap">{r.s.vendor}</td>
+                <td className="whitespace-nowrap">{r.s.carrier_name ?? <span className="capitalize text-slate-500">{r.s.mode}</span>}</td>
                 <td className="font-mono text-xs">{r.s.mbl}</td>
                 <td className="whitespace-nowrap">
                   {r.c ? <MilestoneBadge milestone={r.c.milestone} /> : <span className="text-xs text-slate-500">{r.s.status}</span>}{" "}
                   <Holds holds={r.c?.holds ?? null} />
                 </td>
+                <td className="whitespace-nowrap">{fmtDate(firstEta(r))}</td>
                 <td className="whitespace-nowrap">{fmtDate(r.c?.eta ?? r.s.eta)}</td>
                 <td className="whitespace-nowrap">
                   {r.c ? (
@@ -196,7 +212,7 @@ function NoteCell({ s, onAdded }: { s: Shipment; onAdded: () => void }) {
         <div title={`${note.body}
 — ${note.author ?? ""} ${fmtDate(note.created_at)}`}>
           <p className="line-clamp-2 whitespace-pre-line text-slate-700">{note.body}</p>
-          <span className="text-slate-400">
+          <span className="text-slate-500">
             {fmtDate(note.created_at)}
             {s.notes_count > 1 && (
               <Link to={`/shipments/${s.id}`} className="ml-1 hover:underline">· {s.notes_count} notes</Link>

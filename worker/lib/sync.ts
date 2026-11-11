@@ -35,6 +35,8 @@ interface ContainerRow {
   number: string;
   milestone: string;
   eta: string | null;
+  original_eta: string | null;
+  original_eta_source: string | null;
   discharged_at: string | null;
   first_synced_at: string | null;
 }
@@ -42,6 +44,29 @@ interface ContainerRow {
 const MANUAL_FINAL = new Set(["delivered", "received"]);
 
 const day = (s: string | null | undefined) => (s ? s.slice(0, 10) : null);
+
+const noteDate = (s: string) =>
+  new Date(`${s.slice(0, 10)}T00:00:00Z`).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+
+/**
+ * "ETA (first published)": the carrier's first ETA wins over a manually entered one,
+ * then never changes. Returns the value/source to store and, if a manual date was
+ * replaced by a different carrier date, the replaced value.
+ */
+function firstPublished(
+  prev: { original_eta: string | null; original_eta_source: string | null },
+  carrierEta: string | null,
+) {
+  if (!carrierEta || (prev.original_eta && prev.original_eta_source !== "manual"))
+    return { value: prev.original_eta, source: prev.original_eta_source, replaced: null };
+  const replaced = prev.original_eta && day(prev.original_eta) !== day(carrierEta) ? prev.original_eta : null;
+  return { value: carrierEta, source: "carrier", replaced };
+}
 
 export function parseIds(json: string | null): string[] {
   try {
@@ -252,10 +277,25 @@ export async function applyTracking(env: Env, shipmentId: number, d: TtcTracking
   const byDateDesc = [...events].filter((e) => e.date).sort((a, b) => b.date!.localeCompare(a.date!));
   const withVessel = byDateDesc.find((e) => e.actual && e.vessel) ?? (vad?.vessel ? vad : byDateDesc.find((e) => e.vessel));
   const alerts: NewAlert[] = [];
+  // Manually entered first-published ETAs replaced by the carrier's: "from|to" -> container numbers.
+  const overwritten = new Map<string, string[]>();
+  const noteOverwrite = (from: string, to: string, label: string) => {
+    const k = `${day(from)}|${day(to)}`;
+    overwritten.set(k, [...(overwritten.get(k) ?? []), label]);
+  };
+
+  const prevShip = (await env.DB.prepare(`SELECT original_eta, original_eta_source FROM shipments WHERE id = ?`)
+    .bind(shipmentId)
+    .first<{ original_eta: string | null; original_eta_source: string | null }>()) ?? {
+    original_eta: null,
+    original_eta_source: null,
+  };
+  const shipFirst = firstPublished(prevShip, eta);
+  if (shipFirst.replaced) noteOverwrite(shipFirst.replaced, eta!, "shipment");
 
   await env.DB.prepare(
     `UPDATE shipments SET pol=COALESCE(?, pol), pod=COALESCE(?, pod), vessel=COALESCE(?, vessel), voyage=COALESCE(?, voyage),
-       etd=COALESCE(?, etd), atd=?, eta=COALESCE(?, eta), original_eta=COALESCE(original_eta, ?), ata=?,
+       etd=COALESCE(?, etd), atd=?, eta=COALESCE(?, eta), original_eta=?, original_eta_source=?, ata=?,
        tracking_status='tracking', tracking_error=NULL, last_synced_at=datetime('now'), updated_at=datetime('now')
      WHERE id=?`,
   )
@@ -267,7 +307,8 @@ export async function applyTracking(env: Env, shipmentId: number, d: TtcTracking
       etd,
       atd,
       eta,
-      eta,
+      shipFirst.value,
+      shipFirst.source,
       ata,
       shipmentId,
     )
@@ -283,7 +324,8 @@ export async function applyTracking(env: Env, shipmentId: number, d: TtcTracking
     });
 
   const { results: existing } = await env.DB.prepare(
-    `SELECT id, number, milestone, eta, discharged_at, first_synced_at FROM containers WHERE shipment_id = ?`,
+    `SELECT id, number, milestone, eta, original_eta, original_eta_source, discharged_at, first_synced_at
+     FROM containers WHERE shipment_id = ?`,
   )
     .bind(shipmentId)
     .all<ContainerRow>();
@@ -297,7 +339,16 @@ export async function applyTracking(env: Env, shipmentId: number, d: TtcTracking
       )
         .bind(shipmentId, number, isValidContainerNumber(number) ? 1 : 0)
         .first<{ id: number }>();
-      row = { id: ins!.id, number, milestone: "booked", eta: null, discharged_at: null, first_synced_at: null };
+      row = {
+        id: ins!.id,
+        number,
+        milestone: "booked",
+        eta: null,
+        original_eta: null,
+        original_eta_source: null,
+        discharged_at: null,
+        first_synced_at: null,
+      };
     }
 
     const actual = (c.events ?? []).filter((e) => e.actual && e.date && e.status_code);
@@ -318,9 +369,11 @@ export async function applyTracking(env: Env, shipmentId: number, d: TtcTracking
     const discharged = last("CDD");
     const outgated = arrived ? (last("CGO") ?? last("CDC")) : last("CDC");
     const milestone = MANUAL_FINAL.has(row.milestone) ? row.milestone : advanceMilestone(row.milestone, derived);
+    const first = firstPublished(row, cEta);
+    if (first.replaced) noteOverwrite(first.replaced, cEta!, number);
 
     await env.DB.prepare(
-      `UPDATE containers SET milestone=?, eta=COALESCE(?, eta), original_eta=COALESCE(original_eta, ?), ata=?,
+      `UPDATE containers SET milestone=?, eta=COALESCE(?, eta), original_eta=?, original_eta_source=?, ata=?,
          discharged_at=?, outgated_at=COALESCE(?, outgated_at), empty_returned_at=?, terminal=COALESCE(?, terminal),
          size=COALESCE(?, size), first_synced_at=COALESCE(first_synced_at, datetime('now')), updated_at=datetime('now')
        WHERE id=?`,
@@ -328,7 +381,8 @@ export async function applyTracking(env: Env, shipmentId: number, d: TtcTracking
       .bind(
         milestone,
         cEta,
-        cEta,
+        first.value,
+        first.source,
         cAta,
         discharged,
         outgated,
@@ -379,6 +433,17 @@ export async function applyTracking(env: Env, shipmentId: number, d: TtcTracking
         dedupeKey: `discharged:${row.id}`,
       });
     }
+  }
+
+  if (overwritten.size) {
+    const lines = [...overwritten].map(([k, labels]) => {
+      const [from, to] = k.split("|");
+      const which = overwritten.size > 1 ? ` (${labels.filter((l) => l !== "shipment").join(", ") || "shipment"})` : "";
+      return `ETA (first published) overwritten by carrier${which}: was ${noteDate(from)} (entered manually), now ${noteDate(to)}.`;
+    });
+    await env.DB.prepare(`INSERT INTO notes (shipment_id, author, body) VALUES (?, 'carrier', ?)`)
+      .bind(shipmentId, lines.join("\n"))
+      .run();
   }
 
   if (alerts.length) await raiseAlerts(env, alerts);

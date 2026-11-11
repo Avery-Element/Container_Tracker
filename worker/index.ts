@@ -28,14 +28,21 @@ app.post("/api/webhooks/timetocargo", async (c) => {
 
 // Everything else under /api requires a Cloudflare Access identity when configured.
 app.use("/api/*", async (c, next) => {
+  const host = new URL(c.req.url).hostname;
+  const local = host === "localhost" || host === "127.0.0.1";
+  // `npm run dev` on your own PC: there's no Cloudflare Access login locally, so skip the check.
+  // import.meta.env.DEV is false in the deployed build, so this can never apply to the live site.
+  if (import.meta.env.DEV && local) {
+    c.set("user", "local-dev");
+    return next();
+  }
   if (c.env.ACCESS_AUD && c.env.ACCESS_TEAM_DOMAIN) {
     const email = await verifyAccess(c.env, c.req.raw);
     if (!email) return c.json({ error: "Unauthorized" }, 401);
     c.set("user", email);
   } else {
     // Fail closed: without Access settings the API only answers on localhost.
-    const host = new URL(c.req.url).hostname;
-    if (host !== "localhost" && host !== "127.0.0.1")
+    if (!local)
       return c.json({ error: "Cloudflare Access is not configured (set ACCESS_TEAM_DOMAIN and ACCESS_AUD)" }, 503);
     c.set("user", "local-dev");
   }

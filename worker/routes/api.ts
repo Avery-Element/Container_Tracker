@@ -20,7 +20,7 @@ const SHIPMENT_SELECT = `
     (SELECT v.name FROM shipment_pos sp JOIN purchase_orders po ON po.id = sp.po_id
        JOIN vendors v ON v.id = po.vendor_id WHERE sp.shipment_id = s.id LIMIT 1) AS vendor,
     (SELECT json_group_array(json_object('id', c.id, 'number', c.number, 'number_valid', c.number_valid,
-        'milestone', c.milestone, 'eta', c.eta, 'lfd', c.lfd, 'holds', c.holds,
+        'milestone', c.milestone, 'eta', c.eta, 'original_eta', c.original_eta, 'lfd', c.lfd, 'holds', c.holds,
         'elm_delivery_appt', c.elm_delivery_appt, 'size', c.size, 'available', c.available))
        FROM containers c WHERE c.shipment_id = s.id) AS containers_json,
     (SELECT json_object('body', n.body, 'author', n.author, 'created_at', n.created_at)
@@ -157,8 +157,8 @@ api.post("/shipments", async (c) => {
   }>();
   const carrier = carrierByScac(body.carrier_scac) ?? carrierFromMbl(body.mbl);
   const s = await c.env.DB.prepare(
-    `INSERT INTO shipments (mode, carrier_name, carrier_scac, mbl, reference, forwarder, eta)
-     VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+    `INSERT INTO shipments (mode, carrier_name, carrier_scac, mbl, reference, forwarder, eta, original_eta, original_eta_source)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, CASE WHEN ?7 IS NULL THEN NULL ELSE 'manual' END) RETURNING id`,
   )
     .bind(
       body.mode ?? "ocean",
@@ -177,7 +177,8 @@ api.post("/shipments", async (c) => {
     const n = normalizeContainerNumber(raw);
     if (!n) continue;
     await c.env.DB.prepare(
-      `INSERT OR IGNORE INTO containers (shipment_id, number, number_valid, milestone, eta) VALUES (?, ?, ?, 'booked', ?)`,
+      `INSERT OR IGNORE INTO containers (shipment_id, number, number_valid, milestone, eta, original_eta, original_eta_source)
+       VALUES (?1, ?2, ?3, 'booked', ?4, ?4, CASE WHEN ?4 IS NULL THEN NULL ELSE 'manual' END)`,
     )
       .bind(id, n, isValidContainerNumber(n) ? 1 : 0, body.eta || null)
       .run();
@@ -195,6 +196,15 @@ api.patch("/shipments/:id", async (c) => {
       sets.push(`${f} = ?`);
       binds.push(body[f] === "" ? null : body[f]);
     }
+  // A typed-in ETA fills "first published" only if it's empty, marked manual so the
+  // carrier's first ETA can replace it; later edits only change the current ETA.
+  if (body.eta) {
+    sets.push(
+      "original_eta_source = CASE WHEN original_eta IS NULL THEN 'manual' ELSE original_eta_source END",
+      "original_eta = COALESCE(original_eta, ?)",
+    );
+    binds.push(body.eta);
+  }
   if ("carrier_scac" in body) {
     sets.push("carrier_name = ?");
     binds.push(carrierByScac(body.carrier_scac)?.name ?? null);
@@ -231,8 +241,10 @@ api.post("/shipments/:id/containers", async (c) => {
   const n = normalizeContainerNumber(number ?? "");
   if (!/^[A-Z]{4}\d{6,8}$/.test(n)) return c.json({ error: "Container number should look like ABCU1234567" }, 400);
   await c.env.DB.prepare(
-    `INSERT OR IGNORE INTO containers (shipment_id, number, number_valid, milestone, eta)
-     VALUES (?, ?, ?, 'booked', (SELECT eta FROM shipments WHERE id = ?))`,
+    `INSERT OR IGNORE INTO containers (shipment_id, number, number_valid, milestone, eta, original_eta, original_eta_source)
+     SELECT ?, ?, ?, 'booked', eta, COALESCE(original_eta, eta),
+       CASE WHEN original_eta IS NOT NULL THEN original_eta_source WHEN eta IS NOT NULL THEN 'manual' END
+     FROM shipments WHERE id = ?`,
   )
     .bind(id, n, isValidContainerNumber(n) ? 1 : 0, id)
     .run();
