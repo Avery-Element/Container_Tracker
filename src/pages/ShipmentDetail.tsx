@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { api, type Container, type ShipmentDetail as SD } from "../api";
 import { EditableDate, ErrorBox, fmtDate, Holds, MilestoneBadge, PaymentBadge, TrackingStatus, useApi } from "../components/ui";
 import { CARRIERS } from "../../shared/carriers";
@@ -216,6 +216,20 @@ function EditShipment({ s, onSaved }: { s: SD; onSaved: () => void }) {
     status: s.status,
   });
   const [err, setErr] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const nav = useNavigate();
+  async function del() {
+    setDeleting(true);
+    setErr(null);
+    try {
+      await api.del(`/shipments/${s.id}`);
+      nav("/shipments");
+    } catch (e) {
+      setErr((e as Error).message);
+      setDeleting(false);
+    }
+  }
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   return (
     <form
@@ -260,6 +274,21 @@ function EditShipment({ s, onSaved }: { s: SD; onSaved: () => void }) {
         {err && <span className="text-sm text-red-700">{err}</span>}
       </div>
       <p className="text-xs text-slate-500 md:col-span-4">Changing the carrier or BL resets live tracking. Click “Start live tracking” again after saving.</p>
+      <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 pt-3 md:col-span-4">
+        {confirmDelete ? (
+          <>
+            <span className="text-sm text-red-700">
+              Delete this shipment, its containers, notes and tracking history? This can’t be undone. Linked POs are kept.
+            </span>
+            <button type="button" className="btn bg-red-600 text-white hover:bg-red-700" disabled={deleting} onClick={del}>
+              {deleting ? "Deleting…" : "Yes, delete"}
+            </button>
+            <button type="button" className="btn" disabled={deleting} onClick={() => setConfirmDelete(false)}>Cancel</button>
+          </>
+        ) : (
+          <button type="button" className="btn text-red-700" onClick={() => setConfirmDelete(true)}>Delete shipment</button>
+        )}
+      </div>
     </form>
   );
 }

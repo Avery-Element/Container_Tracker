@@ -228,6 +228,23 @@ api.patch("/shipments/:id", async (c) => {
   return c.json({ ok: true });
 });
 
+// Deletes the shipment and its containers, events, notes, alerts and PO links.
+// The purchase orders themselves are kept.
+api.delete("/shipments/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  await stopTracking(c.env, id); // archive live tracking so we stop being billed for it
+  const db = c.env.DB;
+  await db.batch([
+    db.prepare(`DELETE FROM tracking_events WHERE shipment_id = ? OR container_id IN (SELECT id FROM containers WHERE shipment_id = ?)`).bind(id, id),
+    db.prepare(`DELETE FROM alerts WHERE shipment_id = ? OR container_id IN (SELECT id FROM containers WHERE shipment_id = ?)`).bind(id, id),
+    db.prepare(`DELETE FROM notes WHERE shipment_id = ? OR container_id IN (SELECT id FROM containers WHERE shipment_id = ?)`).bind(id, id),
+    db.prepare(`DELETE FROM containers WHERE shipment_id = ?`).bind(id),
+    db.prepare(`DELETE FROM shipment_pos WHERE shipment_id = ?`).bind(id),
+    db.prepare(`DELETE FROM shipments WHERE id = ?`).bind(id),
+  ]);
+  return c.json({ ok: true });
+});
+
 api.post("/shipments/:id/pos", async (c) => {
   const id = Number(c.req.param("id"));
   const { po_id } = await c.req.json<{ po_id: number }>();
