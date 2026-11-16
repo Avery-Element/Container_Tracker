@@ -1,15 +1,13 @@
-import { NavLink, Route, Routes, useLocation } from "react-router-dom";
+import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import Dashboard from "./pages/Dashboard";
 import Shipments from "./pages/Shipments";
 import ShipmentDetail from "./pages/ShipmentDetail";
-import PurchaseOrders from "./pages/PurchaseOrders";
 import NewShipment from "./pages/NewShipment";
 import { useApi } from "./components/ui";
 
 const nav = [
   { to: "/", label: "Dashboard", end: true },
   { to: "/shipments", label: "Shipments" },
-  { to: "/pos", label: "Purchase orders" },
 ];
 
 export default function App() {
@@ -53,7 +51,8 @@ export default function App() {
           <Route path="/shipments" element={<Shipments />} />
           <Route path="/shipments/new" element={<NewShipment />} />
           <Route path="/shipments/:id" element={<ShipmentDetail />} />
-          <Route path="/pos" element={<PurchaseOrders />} />
+          {/* POs now live on the shipments page; keep old bookmarks working. */}
+          <Route path="/pos" element={<Navigate to="/shipments" replace />} />
         </Routes>
       </main>
     </div>

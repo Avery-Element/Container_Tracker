@@ -1,12 +1,19 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, type Shipment } from "../api";
+import { api, type PurchaseOrder, type Shipment } from "../api";
 import { EditableDate, ErrorBox, fmtDate, Holds, MilestoneBadge, TrackingStatus, useApi } from "../components/ui";
+import NewPoForm, { PaymentSelect } from "../components/NewPoForm";
 import { MILESTONES, MILESTONE_ORDER } from "../../shared/milestones";
 import { ShipLink, type Row } from "./Dashboard";
 
 type SortKey = "entered" | "eta_first" | "eta" | "status";
 type Sort = { key: SortKey; dir: "asc" | "desc" } | null;
+
+/** A table line: a shipment/container, or a PO that has no shipment booked yet. */
+type Line = { kind: "ship"; r: Row } | { kind: "po"; p: PurchaseOrder };
+
+/** Status-filter value for POs with no shipment booked yet. */
+const AWAITING = "__awaiting_booking";
 
 /** Earliest order date across the shipment's POs (when the PO was entered). */
 const enteredDate = (r: Row) =>
@@ -23,9 +30,17 @@ const SORT_VALUE: Record<SortKey, (r: Row) => string | number | null> = {
   status: (r) => (r.c ? MILESTONE_ORDER[r.c.milestone] ?? null : null),
 };
 
-function sortRows(rows: Row[], sort: Sort): Row[] {
+// Unbooked POs have no ETA yet (blank → bottom); by status they sort ahead of "Booked".
+const PO_SORT_VALUE: Record<SortKey, (p: PurchaseOrder) => string | number | null> = {
+  entered: (p) => p.order_date,
+  eta_first: () => null,
+  eta: () => null,
+  status: () => -1,
+};
+
+function sortRows(rows: Line[], sort: Sort): Line[] {
   if (!sort) return rows;
-  const get = SORT_VALUE[sort.key];
+  const get = (l: Line) => (l.kind === "ship" ? SORT_VALUE[sort.key](l.r) : PO_SORT_VALUE[sort.key](l.p));
   const sign = sort.dir === "asc" ? 1 : -1;
   // Blank values always go to the bottom, whichever direction.
   return [...rows].sort((a, b) => {
@@ -66,6 +81,7 @@ export default function Shipments() {
   const [text, setText] = useState(q);
   const [milestone, setMilestone] = useState("");
   const [sort, setSort] = useState<Sort>(null);
+  const [showNewPo, setShowNewPo] = useState(false);
   useEffect(() => {
     const t = setTimeout(() => {
       if (text !== q) setParams((p) => (text ? p.set("q", text) : p.delete("q"), p), { replace: true });
@@ -76,10 +92,37 @@ export default function Shipments() {
   const { data, error, loading, reload } = useApi<Shipment[]>(
     `/shipments?status=${status}${q ? `&q=${encodeURIComponent(q)}` : ""}`,
   );
-  const rows: Row[] = (data ?? []).flatMap((s): Row[] =>
-    s.containers.length ? s.containers.map((c) => ({ s, c })) : [{ s, c: null }],
+  // POs with no shipment booked yet. Active shows open ones; All also shows received/cancelled
+  // ones (so a cancelled PO can be reopened); Received shows none.
+  const { data: poData, error: poError, reload: reloadPos } = useApi<PurchaseOrder[]>(
+    status === "received" ? null : `/pos?status=${status === "all" ? "all" : "open"}`,
   );
-  const shown = sortRows(milestone ? rows.filter((r) => r.c?.milestone === milestone) : rows, sort);
+  const reloadAll = () => (reload(), reloadPos());
+
+  const rows: Line[] = (data ?? []).flatMap((s): Line[] =>
+    s.containers.length
+      ? s.containers.map((c) => ({ kind: "ship", r: { s, c } }))
+      : [{ kind: "ship", r: { s, c: null } }],
+  );
+  const needle = q.toLowerCase();
+  const poRows: Line[] =
+    status === "received"
+      ? []
+      : (poData ?? [])
+          .filter((p) => !p.shipment_ids?.length)
+          .filter(
+            (p) =>
+              !needle ||
+              [p.po_number, p.vendor, p.vendor_pi, p.forwarder, p.description].join(" ").toLowerCase().includes(needle),
+          )
+          .map((p) => ({ kind: "po", p }));
+  const filtered =
+    milestone === AWAITING
+      ? poRows
+      : milestone
+        ? rows.filter((l) => l.kind === "ship" && l.r.c?.milestone === milestone)
+        : [...poRows, ...rows];
+  const shown = sortRows(filtered, sort);
 
   return (
     <div className="space-y-4">
@@ -109,15 +152,22 @@ export default function Shipments() {
           onChange={(e) => setMilestone(e.target.value)}
         >
           <option value="">All statuses</option>
+          {status !== "received" && <option value={AWAITING}>Awaiting booking</option>}
           {MILESTONES.filter((m) => m.key !== "po_placed" && m.key !== "cargo_ready").map((m) => (
             <option key={m.key} value={m.key}>{m.label}</option>
           ))}
         </select>
         <span className="text-sm text-slate-500">{loading ? "Loading…" : `${shown.length} rows`}</span>
-        <SyncAllButton onDone={reload} />
+        <SyncAllButton onDone={reloadAll} />
+        <button className="btn" onClick={() => setShowNewPo((v) => !v)} aria-expanded={showNewPo}>
+          + New PO
+        </button>
         <Link to="/shipments/new" className="btn-primary">+ New shipment</Link>
       </div>
-      <ErrorBox error={error} />
+      {showNewPo && (
+        <NewPoForm onCreated={() => (setShowNewPo(false), reloadPos())} onCancel={() => setShowNewPo(false)} />
+      )}
+      <ErrorBox error={error ?? poError} />
       {/* Scroll box sized to the screen so the header row, the container column and the
           sideways scrollbar are always in view, instead of the scrollbar sitting below the last row. */}
       <div className="card max-h-[75dvh] min-h-80 overflow-auto sm:max-h-[calc(100dvh-9rem)]">
@@ -134,7 +184,10 @@ export default function Shipments() {
             </tr>
           </thead>
           <tbody>
-            {shown.map((r) => (
+            {shown.map((l) => {
+              if (l.kind === "po") return <PoLine key={`po-${l.p.id}`} p={l.p} onChange={reloadPos} />;
+              const r = l.r;
+              return (
               <tr key={`${r.s.id}-${r.c?.id ?? "x"}`}>
                 <td className="whitespace-nowrap"><ShipLink r={r} /></td>
                 <td>{r.s.pos.map((p) => p.po_number).join(", ")}</td>
@@ -160,11 +213,62 @@ export default function Shipments() {
                 <td><NoteCell s={r.s} onAdded={reload} /></td>
                 <td>{r.s.mode === "ocean" && <TrackingStatus status={r.s.tracking_status} error={r.s.tracking_error} />}</td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
     </div>
+  );
+}
+
+/** A PO with no shipment booked yet, laid out in the shipments table's columns. */
+function PoLine({ p, onChange }: { p: PurchaseOrder; onChange: () => void }) {
+  const patch = async (body: Record<string, string | null>) => {
+    await api.patch(`/pos/${p.id}`, body);
+    onChange();
+  };
+  return (
+    <tr className="[&>td]:bg-amber-50/50">
+      <td className="whitespace-nowrap">
+        {p.status === "open" ? (
+          <Link to={`/shipments/new?po=${p.id}`} className="text-sm font-medium text-teal-700 hover:underline">
+            + Book shipment
+          </Link>
+        ) : (
+          <span className="text-xs text-slate-500">—</span>
+        )}
+      </td>
+      <td className="font-medium">{p.po_number}</td>
+      <td className="whitespace-nowrap">{fmtDate(p.order_date)}</td>
+      <td className="whitespace-nowrap">{p.vendor}</td>
+      <td className="whitespace-nowrap text-slate-500">{p.forwarder ? `FF ${p.forwarder}` : "—"}</td>
+      <td className="whitespace-nowrap text-xs text-slate-500">{p.vendor_pi ? `PI ${p.vendor_pi}` : ""}</td>
+      <td className="whitespace-nowrap">
+        <div className="flex items-center gap-1">
+          <select
+            className="input w-auto! py-0.5! text-xs!"
+            aria-label={`PO ${p.po_number} status`}
+            value={p.status}
+            onChange={(e) => patch({ status: e.target.value })}
+          >
+            <option value="open">Awaiting booking</option>
+            <option value="received">PO received</option>
+            <option value="cancelled">PO cancelled</option>
+          </select>
+          <PaymentSelect value={p.payment_status} onChange={(v) => patch({ payment_status: v })} />
+        </div>
+      </td>
+      <td className="whitespace-nowrap" colSpan={2}>
+        <span className="mr-1 text-xs text-slate-500">Cargo ready</span>
+        <EditableDate value={p.crd} onSave={(v) => patch({ crd: v })} />
+      </td>
+      <td>—</td>
+      <td className="min-w-48 max-w-72 text-xs text-slate-600">
+        <p className="line-clamp-2" title={p.description ?? undefined}>{p.description}</p>
+      </td>
+      <td />
+    </tr>
   );
 }
 

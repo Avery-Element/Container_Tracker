@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, type Container, type ShipmentDetail as SD } from "../api";
-import { EditableDate, ErrorBox, fmtDate, Holds, MilestoneBadge, PaymentBadge, TrackingStatus, useApi } from "../components/ui";
+import { EditableDate, ErrorBox, fmtDate, Holds, MilestoneBadge, TrackingStatus, useApi } from "../components/ui";
+import { PaymentSelect } from "../components/NewPoForm";
 import { CARRIERS } from "../../shared/carriers";
 import { MILESTONES } from "../../shared/milestones";
 
@@ -38,10 +39,14 @@ export default function ShipmentDetail() {
             {s.vendor ?? "—"} · {s.carrier_name ?? s.mode} {s.mbl && <span className="font-mono">· {s.mbl}</span>}
             {s.forwarder && ` · FF ${s.forwarder}`}
           </p>
-          <div className="mt-1 flex gap-3">
+          <div className="mt-1 flex flex-wrap gap-3">
             {s.pos.map((p) => (
-              <span key={p.id} className="text-xs">
-                {p.po_number} <PaymentBadge status={p.payment_status} />
+              <span key={p.id} className="flex items-center gap-1.5 text-xs">
+                {p.po_number}
+                <PaymentSelect
+                  value={p.payment_status}
+                  onChange={async (v) => (await api.patch(`/pos/${p.id}`, { payment_status: v }), reload())}
+                />
               </span>
             ))}
           </div>
@@ -280,7 +285,7 @@ function EditShipment({ s, onSaved }: { s: SD; onSaved: () => void }) {
             <span className="text-sm text-red-700">
               Delete this shipment, its containers, notes and tracking history? This can’t be undone. Linked POs are kept.
             </span>
-            <button type="button" className="btn bg-red-600 text-white hover:bg-red-700" disabled={deleting} onClick={del}>
+            <button type="button" className="btn-danger" disabled={deleting} onClick={del}>
               {deleting ? "Deleting…" : "Yes, delete"}
             </button>
             <button type="button" className="btn" disabled={deleting} onClick={() => setConfirmDelete(false)}>Cancel</button>
