@@ -267,7 +267,7 @@ function sizeFrom(iso: string | null | undefined, type: string | null): string |
  * with no evidence (e.g. no transshipment on a direct sailing). A hold <-> available
  * swap is just the one step.
  */
-function milestonesPassed(from: string, to: string, actual: TtcEvent[], departedAt: string | null) {
+export function milestonesPassed(from: string, to: string, actual: TtcEvent[], departedAt: string | null) {
   const reachedAt = (m: string) =>
     actual
       .filter((e) => TTC_EVENTS[e.status_code!]?.milestone === m)

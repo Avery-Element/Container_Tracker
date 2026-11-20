@@ -125,7 +125,7 @@ export function describe(e: HistoryEntry): ReactNode {
     case "tracking_event":
       return <>{e.body}</>;
     case "milestone":
-      return <><Change e={e} /></>;
+      return e.old_value ? <Change e={e} /> : <>Reached <span className="font-medium">{milestoneLabel(e.new_value ?? "")}</span></>;
     default:
       return <>{HISTORY_KINDS[e.kind] ?? e.kind}{e.body && `: ${e.body}`}</>;
   }

@@ -13,7 +13,6 @@
     "db:migrate:remote": "wrangler d1 migrations apply container-tracker --remote",
     "import:csv": "tsx scripts/import-csv.ts",
     "db:seed:local": "wrangler d1 execute container-tracker --local --file=data/import.sql",
-    "db:seed:remote": "wrangler d1 execute container-tracker --remote --file=data/import.sql",
     "cf-typegen": "wrangler types worker/worker-configuration.d.ts"
   },
   "dependencies": {

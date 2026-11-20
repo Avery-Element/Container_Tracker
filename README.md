@@ -48,7 +48,7 @@ npm run dev                                            # http://localhost:5173
 npm test
 ```
 
-Check `data/import-report.md` for rows that need fixing by hand, such as bad container numbers or unreadable dates. Re-running the seed **replaces** all data.
+Check `data/import-report.md` for rows that need fixing by hand, such as bad container numbers or unreadable dates. Re-running the seed **replaces** all data, so it refuses to run on a database that has any PO History (see [ADR 0001](docs/adr/0001-po-history-is-a-permanent-record.md)). To start your local copy over, delete the `.wrangler/state` folder, then run the migrate and seed commands again.
 
 To test live tracking locally, copy `.dev.vars.example` to `.dev.vars`, fill in `TIMETOCARGO_API_KEY`, restart `npm run dev`, and click **Sync tracking** on the Shipments tab. Locally, updates only arrive when you click Sync or Refresh, because webhooks can't reach your PC.
 
@@ -66,9 +66,10 @@ To test live tracking locally, copy `.dev.vars.example` to `.dev.vars`, fill in 
    - `ALERT_TO`: comma-separated recipients;
    - `APP_URL`: e.g. `https://tracker.yourdomain.com`.
 
-3. **Create the schema and load the data:**
+3. **Create the schema and load the data** (first setup only; the seed refuses to run once PO History exists):
    ```bash
-   npm run db:migrate:remote && npm run db:seed:remote
+   npm run db:migrate:remote
+   npx wrangler d1 execute container-tracker --remote --file=data/import.sql
    ```
 
 4. **Deploy:** `npm run deploy`. Then in the dashboard, go to Workers → container-tracker → Settings → Domains & Routes and add a custom domain such as `tracker.yourdomain.com`.

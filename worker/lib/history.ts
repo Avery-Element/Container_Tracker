@@ -38,6 +38,8 @@ export interface HistoryEntry {
   container_number?: string | null;
   body?: string | null;
   pre_history?: boolean;
+  /** When the app learned of it. Defaults to now; the backfill passes the original time (ISO, UTC). */
+  recorded_at?: string | null;
   /** Makes the write idempotent. For fan-out writes, ":po<id>" is appended per PO. */
   dedupe_key?: string | null;
 }
@@ -75,12 +77,13 @@ function values(e: HistoryEntry) {
     e.container_number ?? null,
     e.body ?? null,
     e.pre_history ? 1 : 0,
+    e.recorded_at ?? null,
   ];
 }
 
 const COLS = `po_id, actor, kind, field, old_value, new_value, occurred_at, shipment_id, shipment_label,
-  container_number, body, pre_history, dedupe_key`;
-const VALS = `?, ?, ?, ?, ?, ?, ?, COALESCE(?, ${LABEL_SQL}), ?, ?, ?`;
+  container_number, body, pre_history, recorded_at, dedupe_key`;
+const VALS = `?, ?, ?, ?, ?, ?, ?, COALESCE(?, ${LABEL_SQL}), ?, ?, ?, COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`;
 
 /** One History Entry on one PO. Ignored if dedupe_key was already used. */
 export function addEntry(db: D1Database, poId: number, e: HistoryEntry): D1PreparedStatement {

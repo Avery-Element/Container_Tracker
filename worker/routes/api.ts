@@ -8,6 +8,7 @@ import { carrierByScac, carrierFromMbl } from "../../shared/carriers";
 import { MILESTONE_ORDER } from "../../shared/milestones";
 import { addEntry, forShipmentPos, poFieldChanges } from "../lib/history";
 import { resolvePayment } from "../../shared/payment";
+import { backfillHistory } from "../lib/backfill";
 
 type Vars = { Variables: { user: string } };
 export const api = new Hono<{ Bindings: Env } & Vars>();
@@ -708,6 +709,9 @@ api.post("/notes", async (c) => {
   await db.batch(stmts);
   return c.json({ ok: true }, 201);
 });
+
+// One-time: fill PO History for data that existed before it began. Safe to re-run.
+api.post("/admin/backfill-history", async (c) => c.json({ ok: true, ...(await backfillHistory(c.env)) }));
 
 // Manual triggers (handy for testing cron behaviour)
 api.post("/admin/digest", async (c) => c.json({ sent: await sendDigest(c.env) }));
