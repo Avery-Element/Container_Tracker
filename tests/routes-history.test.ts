@@ -66,6 +66,28 @@ describe("POs", () => {
   });
 });
 
+describe("GET /pos/:id", () => {
+  it("returns the PO, its shipments and its history, including entries about deleted shipments", async () => {
+    await call("PATCH", "/pos/1", { forwarder: "THI" });
+    await call("POST", "/notes", { shipment_id: 10, body: "hello" });
+    db.exec(`INSERT INTO shipments (id, mbl) VALUES (11, 'COSU1'); INSERT INTO shipment_pos VALUES (11, 1);`);
+    await call("DELETE", "/shipments/11");
+    const { status, json } = await call("GET", "/pos/1");
+    expect(status).toBe(200);
+    expect(json).toMatchObject({ po_number: "5871ELM", vendor: "Acme", forwarder: "THI" });
+    expect((json.shipments as { id: number; containers: unknown[] }[]).map((s) => [s.id, s.containers.length])).toEqual([[10, 2]]);
+    expect((json.history as Record<string, unknown>[]).map((h) => [h.kind, h.shipment_label, h.shipment_exists])).toEqual([
+      ["field_changed", null, 0],
+      ["note", "EGLV123", 1],
+      ["unlinked", "COSU1", 0],
+    ]);
+  });
+
+  it("404s for an unknown PO", async () => {
+    expect((await call("GET", "/pos/999")).status).toBe(404);
+  });
+});
+
 describe("payment", () => {
   it("logs status and date as two entries from one save", async () => {
     await call("PATCH", "/pos/1", { payment_status: "deposit_paid", deposit_paid_on: "2026-11-03" });

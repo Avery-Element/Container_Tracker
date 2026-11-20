@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { api, type Container, type Dashboard as D, type Shipment } from "../api";
-import { daysFrom, EditableDate, ErrorBox, fmtDate, Holds, MilestoneBadge, PaymentBadge, useApi } from "../components/ui";
+import { daysFrom, EditableDate, ErrorBox, fmtDate, Holds, MilestoneBadge, PaymentBadge, PoLinks, useApi } from "../components/ui";
 import { MILESTONES } from "../../shared/milestones";
 
 export interface Row {
@@ -78,7 +78,7 @@ export default function Dashboard() {
               {atRisk.map(({ r, why }) => (
                 <tr key={`${r.s.id}-${r.c?.id}`}>
                   <td><ShipLink r={r} /></td>
-                  <td>{r.s.pos.map((p) => p.po_number).join(", ")}</td>
+                  <td><PoLinks pos={r.s.pos} /></td>
                   <td>{r.s.vendor}</td>
                   <td>{r.c && <MilestoneBadge milestone={r.c.milestone} />} <Holds holds={r.c?.holds ?? null} /></td>
                   <td className="font-medium text-red-700">{why.join(" · ")}</td>
@@ -106,7 +106,7 @@ export default function Dashboard() {
               <tr key={`${r.s.id}-${r.c?.id}`}>
                 <td className="whitespace-nowrap font-medium">{fmtDate(eta(r))}</td>
                 <td><ShipLink r={r} /></td>
-                <td>{r.s.pos.map((p) => p.po_number).join(", ")}</td>
+                <td><PoLinks pos={r.s.pos} /></td>
                 <td>{r.s.vendor}</td>
                 <td>{r.s.carrier_name ?? r.s.mode}</td>
                 <td>{r.c ? <MilestoneBadge milestone={r.c.milestone} /> : r.s.mode}</td>
@@ -135,7 +135,7 @@ export default function Dashboard() {
             <tbody>
               {data.pendingPos.map((p) => (
                 <tr key={p.id}>
-                  <td className="font-medium">{p.po_number}</td>
+                  <td className="font-medium"><PoLinks pos={[p]} /></td>
                   <td>{p.vendor}</td>
                   <td>{fmtDate(p.crd)}</td>
                   <td><PaymentBadge status={p.payment_status} /></td>

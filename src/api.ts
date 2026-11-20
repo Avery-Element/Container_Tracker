@@ -84,6 +84,45 @@ export interface PurchaseOrder {
   shipment_ids?: number[];
 }
 
+/** One History Entry in a PO's history (see GLOSSARY.md). */
+export interface HistoryEntry {
+  id: number;
+  po_id: number;
+  recorded_at: string;
+  actor: string;
+  kind: string;
+  field: string | null;
+  old_value: string | null;
+  new_value: string | null;
+  occurred_at: string | null;
+  shipment_id: number | null;
+  shipment_label: string | null;
+  container_number: string | null;
+  body: string | null;
+  pre_history: number;
+  shipment_exists?: number;
+  /** Activity Feed only */
+  po_number?: string;
+  vendor?: string | null;
+}
+
+export interface PoDetail extends PurchaseOrder {
+  shipments: {
+    id: number;
+    mode: string;
+    status: string;
+    mbl: string | null;
+    reference: string | null;
+    carrier_name: string | null;
+    eta: string | null;
+    original_eta: string | null;
+    ata: string | null;
+    tracking_status: string | null;
+    containers: { number: string; milestone: string }[];
+  }[];
+  history: HistoryEntry[];
+}
+
 export interface Dashboard {
   today: string;
   byMilestone: { milestone: string; n: number }[];

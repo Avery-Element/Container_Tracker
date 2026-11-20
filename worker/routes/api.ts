@@ -438,6 +438,39 @@ api.get("/pos", async (c) => {
   return c.json(results.map((r) => ({ ...r, shipment_ids: JSON.parse((r.shipment_ids as string) ?? "[]") })));
 });
 
+// One PO with its shipments and its full PO History (oldest first).
+api.get("/pos/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const db = c.env.DB;
+  const po = await db
+    .prepare(`SELECT po.*, v.name AS vendor FROM purchase_orders po LEFT JOIN vendors v ON v.id = po.vendor_id WHERE po.id = ?`)
+    .bind(id)
+    .first();
+  if (!po) return c.json({ error: "Not found" }, 404);
+  const [shipments, history] = await Promise.all([
+    db
+      .prepare(
+        `SELECT s.id, s.mode, s.status, s.mbl, s.reference, s.carrier_name, s.eta, s.original_eta, s.ata, s.tracking_status,
+           (SELECT json_group_array(json_object('number', c.number, 'milestone', c.milestone)) FROM containers c WHERE c.shipment_id = s.id) AS containers_json
+         FROM shipment_pos sp JOIN shipments s ON s.id = sp.shipment_id WHERE sp.po_id = ? ORDER BY s.created_at`,
+      )
+      .bind(id)
+      .all<Record<string, unknown>>(),
+    db
+      .prepare(
+        `SELECT h.*, EXISTS (SELECT 1 FROM shipments s WHERE s.id = h.shipment_id) AS shipment_exists
+         FROM po_history h WHERE h.po_id = ? ORDER BY h.recorded_at, h.id`,
+      )
+      .bind(id)
+      .all(),
+  ]);
+  return c.json({
+    ...po,
+    shipments: shipments.results.map(({ containers_json, ...s }) => ({ ...s, containers: JSON.parse((containers_json as string) ?? "[]") })),
+    history: history.results,
+  });
+});
+
 api.get("/vendors", async (c) => {
   const { results } = await c.env.DB.prepare(`SELECT * FROM vendors ORDER BY name`).all();
   return c.json(results);

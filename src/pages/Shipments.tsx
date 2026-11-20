@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type PurchaseOrder, type Shipment } from "../api";
-import { EditableDate, ErrorBox, fmtDate, Holds, MilestoneBadge, TrackingStatus, useApi } from "../components/ui";
+import { EditableDate, ErrorBox, fmtDate, Holds, MilestoneBadge, PoLinks, TrackingStatus, useApi } from "../components/ui";
 import NewPoForm, { PaymentSelect } from "../components/NewPoForm";
 import { MILESTONES, MILESTONE_ORDER } from "../../shared/milestones";
 import { ShipLink, type Row } from "./Dashboard";
@@ -190,7 +190,7 @@ export default function Shipments() {
               return (
               <tr key={`${r.s.id}-${r.c?.id ?? "x"}`}>
                 <td className="whitespace-nowrap"><ShipLink r={r} /></td>
-                <td>{r.s.pos.map((p) => p.po_number).join(", ")}</td>
+                <td><PoLinks pos={r.s.pos} /></td>
                 <td className="whitespace-nowrap">{fmtDate(enteredDate(r))}</td>
                 <td className="whitespace-nowrap">{r.s.vendor}</td>
                 <td className="whitespace-nowrap">{r.s.carrier_name ?? <span className="capitalize text-slate-500">{r.s.mode}</span>}</td>
@@ -239,7 +239,7 @@ function PoLine({ p, onChange }: { p: PurchaseOrder; onChange: () => void }) {
           <span className="text-xs text-slate-500">—</span>
         )}
       </td>
-      <td className="font-medium">{p.po_number}</td>
+      <td className="font-medium"><PoLinks pos={[p]} /></td>
       <td className="whitespace-nowrap">{fmtDate(p.order_date)}</td>
       <td className="whitespace-nowrap">{p.vendor}</td>
       <td className="whitespace-nowrap text-slate-500">{p.forwarder ? `FF ${p.forwarder}` : "—"}</td>

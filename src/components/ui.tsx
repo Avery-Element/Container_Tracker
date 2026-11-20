@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { milestoneLabel } from "../../shared/milestones";
 import { PAYMENT_LABELS } from "../../shared/normalize";
 import { api } from "../api";
@@ -48,6 +49,20 @@ export function MilestoneBadge({ milestone }: { milestone: string }) {
     >
       {milestoneLabel(milestone)}
     </span>
+  );
+}
+
+/** PO numbers as links to each PO's page. */
+export function PoLinks({ pos, sep = ", " }: { pos: { id: number; po_number: string }[]; sep?: string }) {
+  return (
+    <>
+      {pos.map((p, i) => (
+        <Fragment key={p.id}>
+          {i > 0 && sep}
+          <Link to={`/pos/${p.id}`} className="text-teal-800 hover:underline">{p.po_number}</Link>
+        </Fragment>
+      ))}
+    </>
   );
 }
 

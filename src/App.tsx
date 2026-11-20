@@ -3,6 +3,7 @@ import Dashboard from "./pages/Dashboard";
 import Shipments from "./pages/Shipments";
 import ShipmentDetail from "./pages/ShipmentDetail";
 import NewShipment from "./pages/NewShipment";
+import PoDetail from "./pages/PoDetail";
 import { useApi } from "./components/ui";
 
 const nav = [
@@ -52,6 +53,7 @@ export default function App() {
           <Route path="/shipments/new" element={<NewShipment />} />
           <Route path="/shipments/:id" element={<ShipmentDetail />} />
           {/* POs now live on the shipments page; keep old bookmarks working. */}
+          <Route path="/pos/:id" element={<PoDetail />} />
           <Route path="/pos" element={<Navigate to="/shipments" replace />} />
         </Routes>
       </main>

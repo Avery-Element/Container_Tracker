@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, type Container, type ShipmentDetail as SD } from "../api";
-import { EditableDate, ErrorBox, fmtDate, Holds, MilestoneBadge, TrackingStatus, useApi } from "../components/ui";
+import { EditableDate, ErrorBox, fmtDate, Holds, MilestoneBadge, PoLinks, TrackingStatus, useApi } from "../components/ui";
 import { PaymentSelect } from "../components/NewPoForm";
 import { CARRIERS } from "../../shared/carriers";
 import { MILESTONES } from "../../shared/milestones";
@@ -42,7 +42,7 @@ export default function ShipmentDetail() {
           <div className="mt-1 flex flex-wrap gap-3">
             {s.pos.map((p) => (
               <span key={p.id} className="flex items-center gap-1.5 text-xs">
-                {p.po_number}
+                <PoLinks pos={[p]} />
                 <PaymentSelect po={p} onSave={async (patch) => (await api.patch(`/pos/${p.id}`, patch), reload())} />
               </span>
             ))}
