@@ -88,6 +88,63 @@ describe("GET /pos/:id", () => {
   });
 });
 
+describe("Activity Feed", () => {
+  beforeEach(async () => {
+    await call("PATCH", "/pos/1", { payment_status: "deposit_paid", deposit_paid_on: "2026-11-03" });
+    await call("PATCH", "/pos/2", { crd: "2026-12-01" });
+    await call("POST", "/notes", { po_id: 2, body: '=HYPERLINK("x"), "quoted"' });
+    db.exec(`INSERT INTO po_history (po_id, actor, kind, body, recorded_at) VALUES (1, 'Carrier tracking', 'tracking_event', 'Loaded', '2026-01-01T00:00:00.000Z')`);
+  });
+  const feed = async (qs = "") => (await call("GET", `/history?${qs}`)).json as { entries: Record<string, unknown>[]; has_more: boolean };
+
+  it("lists newest first across POs, without carrier tracking by default", async () => {
+    const { entries } = await feed();
+    expect(entries.map((e) => [e.po_number, e.kind, e.field])).toEqual([
+      ["5872ELM", "note", null],
+      ["5872ELM", "field_changed", "crd"],
+      ["5871ELM", "field_changed", "deposit_paid_on"],
+      ["5871ELM", "field_changed", "payment_status"],
+    ]);
+    expect(entries[0]).toMatchObject({ vendor: "Acme", actor: USER });
+  });
+
+  it("filters by type and field, e.g. every payment status change", async () => {
+    const { entries } = await feed("type=field_changed&field=payment_status");
+    expect(entries.map((e) => [e.po_number, e.new_value])).toEqual([["5871ELM", "deposit_paid"]]);
+  });
+
+  it("includes tracking on request, and filters by date, PO and who", async () => {
+    expect((await feed("tracking=1")).entries).toHaveLength(5);
+    expect((await feed("tracking=1&to=2026-02-01T00:00:00.000Z")).entries.map((e) => e.body)).toEqual(["Loaded"]);
+    expect((await feed("po=5872")).entries).toHaveLength(2);
+    expect((await feed("actor=nobody")).entries).toEqual([]);
+  });
+
+  it("pages with has_more", async () => {
+    const page = await feed("limit=3");
+    expect(page.entries).toHaveLength(3);
+    expect(page.has_more).toBe(true);
+    expect((await feed("limit=3&offset=3")).has_more).toBe(false);
+  });
+
+  it("exports CSV with escaping and neutralised formulas", async () => {
+    const res = await app.request("/history.csv?po=5872&tz=America/Los_Angeles", {}, env);
+    expect(res.headers.get("content-type")).toContain("text/csv");
+    expect(res.headers.get("content-disposition")).toMatch(/attachment; filename="po-history-\d{4}-\d{2}-\d{2}\.csv"/);
+    const lines = (await res.text()).replace(/^﻿/, "").trim().split("\r\n");
+    expect(lines[0]).toBe(
+      "Recorded (America/Los_Angeles),Recorded (UTC),PO,Vendor,Who,Type,Field,Old value,New value,Shipment,Container,Occurred,Details,Before history began",
+    );
+    expect(lines).toHaveLength(3);
+    expect(lines[1]).toContain(`"'=HYPERLINK(""x""), ""quoted"""`);
+    expect(lines[1]).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},/);
+  });
+
+  it("lists who appears in the history", async () => {
+    expect((await call("GET", "/history/actors")).json).toEqual(["Carrier tracking", USER]);
+  });
+});
+
 describe("payment", () => {
   it("logs status and date as two entries from one save", async () => {
     await call("PATCH", "/pos/1", { payment_status: "deposit_paid", deposit_paid_on: "2026-11-03" });

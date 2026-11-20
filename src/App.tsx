@@ -4,11 +4,13 @@ import Shipments from "./pages/Shipments";
 import ShipmentDetail from "./pages/ShipmentDetail";
 import NewShipment from "./pages/NewShipment";
 import PoDetail from "./pages/PoDetail";
+import Activity from "./pages/Activity";
 import { useApi } from "./components/ui";
 
 const nav = [
   { to: "/", label: "Dashboard", end: true },
   { to: "/shipments", label: "Shipments" },
+  { to: "/activity", label: "Activity" },
 ];
 
 export default function App() {
@@ -53,6 +55,7 @@ export default function App() {
           <Route path="/shipments/new" element={<NewShipment />} />
           <Route path="/shipments/:id" element={<ShipmentDetail />} />
           {/* POs now live on the shipments page; keep old bookmarks working. */}
+          <Route path="/activity" element={<Activity />} />
           <Route path="/pos/:id" element={<PoDetail />} />
           <Route path="/pos" element={<Navigate to="/shipments" replace />} />
         </Routes>

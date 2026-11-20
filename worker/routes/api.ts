@@ -471,6 +471,109 @@ api.get("/pos/:id", async (c) => {
   });
 });
 
+// ---- Activity Feed: History Entries across all POs
+
+const TRACKING_KINDS = ["tracking_event", "milestone"];
+
+/**
+ * Filters shared by the feed and its CSV export. from/to are ISO timestamps (the browser
+ * turns the viewer's local days into exact times). Carrier tracking is left out unless
+ * asked for, or unless a tracking type is picked.
+ */
+function historyFilter(q: (k: string) => string | undefined) {
+  const where: string[] = [];
+  const binds: unknown[] = [];
+  const add = (sql: string, ...v: unknown[]) => (where.push(sql), binds.push(...v));
+  const kinds = (q("type") ?? "").split(",").filter(Boolean);
+  if (kinds.length) add(`h.kind IN (${kinds.map(() => "?").join(",")})`, ...kinds);
+  else if (q("tracking") !== "1") add(`h.kind NOT IN (${TRACKING_KINDS.map(() => "?").join(",")})`, ...TRACKING_KINDS);
+  if (q("field")) add(`h.field = ?`, q("field"));
+  if (q("actor")) add(`h.actor = ?`, q("actor"));
+  if (q("from")) add(`h.recorded_at >= ?`, q("from"));
+  if (q("to")) add(`h.recorded_at < ?`, q("to"));
+  if (q("vendor")) add(`v.name = ?`, q("vendor"));
+  if (q("po")) add(`po.po_number LIKE ?`, `%${q("po")!.trim().toUpperCase()}%`);
+  return {
+    sql: `FROM po_history h JOIN purchase_orders po ON po.id = h.po_id LEFT JOIN vendors v ON v.id = po.vendor_id
+          ${where.length ? `WHERE ${where.join(" AND ")}` : ""}`,
+    binds,
+  };
+}
+
+api.get("/history", async (c) => {
+  const f = historyFilter((k) => c.req.query(k));
+  const limit = Math.min(Number(c.req.query("limit") ?? 200) || 200, 500);
+  const offset = Math.max(Number(c.req.query("offset") ?? 0) || 0, 0);
+  const { results } = await c.env.DB.prepare(
+    `SELECT h.*, po.po_number, v.name AS vendor, EXISTS (SELECT 1 FROM shipments s WHERE s.id = h.shipment_id) AS shipment_exists
+     ${f.sql} ORDER BY h.recorded_at DESC, h.id DESC LIMIT ? OFFSET ?`,
+  )
+    .bind(...f.binds, limit + 1, offset)
+    .all();
+  return c.json({ entries: results.slice(0, limit), has_more: results.length > limit });
+});
+
+/** People and processes that appear in PO History, for the feed's "Who" filter. */
+api.get("/history/actors", async (c) => {
+  const { results } = await c.env.DB.prepare(`SELECT DISTINCT actor FROM po_history ORDER BY actor`).all<{ actor: string }>();
+  return c.json(results.map((r) => r.actor));
+});
+
+const csvCell = (v: unknown) => {
+  const s = v === null || v === undefined ? "" : String(v);
+  // Quote when needed; prefix formula-like text so spreadsheets don't execute it.
+  const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+  return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+};
+
+api.get("/history.csv", async (c) => {
+  const f = historyFilter((k) => c.req.query(k));
+  const { results } = await c.env.DB.prepare(
+    `SELECT h.*, po.po_number, v.name AS vendor ${f.sql} ORDER BY h.recorded_at DESC, h.id DESC LIMIT 50000`,
+  )
+    .bind(...f.binds)
+    .all<Record<string, unknown>>();
+  const tz = c.req.query("tz") || "UTC";
+  let local: Intl.DateTimeFormat;
+  try {
+    local = new Intl.DateTimeFormat("en-CA", { timeZone: tz, dateStyle: "short", timeStyle: "medium", hourCycle: "h23" });
+  } catch {
+    local = new Intl.DateTimeFormat("en-CA", { timeZone: "UTC", dateStyle: "short", timeStyle: "medium", hourCycle: "h23" });
+  }
+  const header = [
+    `Recorded (${tz})`, "Recorded (UTC)", "PO", "Vendor", "Who", "Type", "Field", "Old value", "New value",
+    "Shipment", "Container", "Occurred", "Details", "Before history began",
+  ];
+  const lines = results.map((h) =>
+    [
+      local.format(new Date(h.recorded_at as string)).replace(",", ""),
+      h.recorded_at,
+      h.po_number,
+      h.vendor,
+      h.actor,
+      h.kind,
+      h.field,
+      h.old_value,
+      h.new_value,
+      h.shipment_label,
+      h.container_number,
+      h.occurred_at,
+      h.body,
+      h.pre_history ? "yes" : "",
+    ]
+      .map(csvCell)
+      .join(","),
+  );
+  const stamp = new Date().toISOString().slice(0, 10);
+  // The leading BOM makes Excel read the file as UTF-8 (vendor names, notes).
+  return new Response("﻿" + [header.map(csvCell).join(","), ...lines].join("\r\n") + "\r\n", {
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="po-history-${stamp}.csv"`,
+    },
+  });
+});
+
 api.get("/vendors", async (c) => {
   const { results } = await c.env.DB.prepare(`SELECT * FROM vendors ORDER BY name`).all();
   return c.json(results);
