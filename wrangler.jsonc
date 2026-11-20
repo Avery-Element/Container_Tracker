@@ -35,7 +35,7 @@
 	},
 	"vars": {
 		"ALERT_FROM": "Container Tracker <tracker@element-tools.app>",
-		"ALERT_TO": "ouriela@elementcontract.com,matp@elementcontract.com,avery@elementcontract.com",
+		"ALERT_TO": "ouriela@elementcontract.com,matp@elementcontract.com",
 		"APP_URL": "https://tracker.element-tools.app",
 		// Cloudflare Access (Zero Trust) application protecting tracker.element-tools.app
 		"ACCESS_TEAM_DOMAIN": "avery-dec.cloudflareaccess.com",
