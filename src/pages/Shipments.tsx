@@ -286,7 +286,7 @@ function NoteCell({ s, onAdded }: { s: Shipment; onAdded: () => void }) {
           e.preventDefault();
           if (!body.trim()) return;
           setSaving(true);
-          await api.post("/notes", { shipment_id: s.id, po_id: s.pos[0]?.id, body });
+          await api.post("/notes", { shipment_id: s.id, body });
           setSaving(false);
           setBody("");
           setAdding(false);

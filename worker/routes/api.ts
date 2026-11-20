@@ -6,11 +6,13 @@ import { sendDigest } from "../lib/alerts";
 import { normalizeContainerNumber, isValidContainerNumber } from "../../shared/container-number";
 import { carrierByScac, carrierFromMbl } from "../../shared/carriers";
 import { MILESTONE_ORDER } from "../../shared/milestones";
+import { addEntry, forShipmentPos, poFieldChanges } from "../lib/history";
 
 type Vars = { Variables: { user: string } };
 export const api = new Hono<{ Bindings: Env } & Vars>();
 
 const today = () => new Date().toISOString().slice(0, 10);
+const dayOf = (s: string | null | undefined) => (s ? s.slice(0, 10) : null);
 
 // Shipment list query reused by the dashboard and shipments page.
 const SHIPMENT_SELECT = `
@@ -156,7 +158,8 @@ api.post("/shipments", async (c) => {
     containers?: string[];
   }>();
   const carrier = carrierByScac(body.carrier_scac) ?? carrierFromMbl(body.mbl);
-  const s = await c.env.DB.prepare(
+  const db = c.env.DB;
+  const s = await db.prepare(
     `INSERT INTO shipments (mode, carrier_name, carrier_scac, mbl, reference, forwarder, eta, original_eta, original_eta_source)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, CASE WHEN ?7 IS NULL THEN NULL ELSE 'manual' END) RETURNING id`,
   )
@@ -171,18 +174,27 @@ api.post("/shipments", async (c) => {
     )
     .first<{ id: number }>();
   const id = s!.id;
-  for (const po of body.po_ids ?? [])
-    await c.env.DB.prepare(`INSERT OR IGNORE INTO shipment_pos (shipment_id, po_id) VALUES (?, ?)`).bind(id, po).run();
-  for (const raw of body.containers ?? []) {
-    const n = normalizeContainerNumber(raw);
-    if (!n) continue;
-    await c.env.DB.prepare(
-      `INSERT OR IGNORE INTO containers (shipment_id, number, number_valid, milestone, eta, original_eta, original_eta_source)
-       VALUES (?1, ?2, ?3, 'booked', ?4, ?4, CASE WHEN ?4 IS NULL THEN NULL ELSE 'manual' END)`,
-    )
-      .bind(id, n, isValidContainerNumber(n) ? 1 : 0, body.eta || null)
-      .run();
-  }
+  const numbers = [...new Set((body.containers ?? []).map(normalizeContainerNumber).filter(Boolean))];
+  const stmts: D1PreparedStatement[] = numbers.map((n) =>
+    db
+      .prepare(
+        `INSERT OR IGNORE INTO containers (shipment_id, number, number_valid, milestone, eta, original_eta, original_eta_source)
+         VALUES (?1, ?2, ?3, 'booked', ?4, ?4, CASE WHEN ?4 IS NULL THEN NULL ELSE 'manual' END)`,
+      )
+      .bind(id, n, isValidContainerNumber(n) ? 1 : 0, body.eta || null),
+  );
+  // Containers added at creation are listed in the "linked" entry, not logged one by one.
+  for (const po of new Set(body.po_ids ?? []))
+    stmts.push(
+      db.prepare(`INSERT OR IGNORE INTO shipment_pos (shipment_id, po_id) VALUES (?, ?)`).bind(id, po),
+      addEntry(db, po, {
+        kind: "linked",
+        actor: c.get("user"),
+        shipment_id: id,
+        body: numbers.length ? `Containers: ${numbers.join(", ")}` : null,
+      }),
+    );
+  if (stmts.length) await db.batch(stmts);
   return c.json({ id }, 201);
 });
 
@@ -215,15 +227,25 @@ api.patch("/shipments/:id", async (c) => {
     sets.push("tracking_ids = NULL, tracking_task_id = NULL, tracking_status = NULL, tracking_error = NULL");
   }
   if (!sets.length) return c.json({ ok: true });
+  const db = c.env.DB;
+  const prev = await db.prepare(`SELECT eta, status FROM shipments WHERE id = ?`).bind(id).first<{ eta: string | null; status: string }>();
+  if (!prev) return c.json({ error: "Not found" }, 404);
+  const stmts: D1PreparedStatement[] = [];
+  const actor = c.get("user");
+  // History first: it reads the shipment's links and label before anything changes.
+  const newEta = "eta" in body ? body.eta || null : prev.eta;
+  if (dayOf(newEta) !== dayOf(prev.eta))
+    stmts.push(forShipmentPos(db, id, { kind: "eta_changed", actor, field: "eta", old_value: dayOf(prev.eta), new_value: dayOf(newEta) }));
+  if (body.status && body.status !== prev.status)
+    stmts.push(forShipmentPos(db, id, { kind: "shipment_status", actor, field: "status", old_value: prev.status, new_value: body.status }));
   if (body.status === "received")
-    await c.env.DB.prepare(
-      `UPDATE containers SET milestone='received', received_at=COALESCE(received_at, date('now')) WHERE shipment_id=?`,
-    )
-      .bind(id)
-      .run();
-  await c.env.DB.prepare(`UPDATE shipments SET ${sets.join(", ")}, updated_at = datetime('now') WHERE id = ?`)
-    .bind(...binds, id)
-    .run();
+    stmts.push(
+      db
+        .prepare(`UPDATE containers SET milestone='received', received_at=COALESCE(received_at, date('now')) WHERE shipment_id=?`)
+        .bind(id),
+    );
+  stmts.push(db.prepare(`UPDATE shipments SET ${sets.join(", ")}, updated_at = datetime('now') WHERE id = ?`).bind(...binds, id));
+  await db.batch(stmts);
   if (body.status === "received" || body.status === "cancelled") await stopTracking(c.env, id);
   return c.json({ ok: true });
 });
@@ -235,6 +257,8 @@ api.delete("/shipments/:id", async (c) => {
   await stopTracking(c.env, id); // archive live tracking so we stop being billed for it
   const db = c.env.DB;
   await db.batch([
+    // Logged first, while the PO links and the shipment's label still exist. PO History is kept.
+    forShipmentPos(db, id, { kind: "unlinked", actor: c.get("user"), body: "Shipment deleted" }),
     db.prepare(`DELETE FROM tracking_events WHERE shipment_id = ? OR container_id IN (SELECT id FROM containers WHERE shipment_id = ?)`).bind(id, id),
     db.prepare(`DELETE FROM alerts WHERE shipment_id = ? OR container_id IN (SELECT id FROM containers WHERE shipment_id = ?)`).bind(id, id),
     db.prepare(`DELETE FROM notes WHERE shipment_id = ? OR container_id IN (SELECT id FROM containers WHERE shipment_id = ?)`).bind(id, id),
@@ -248,7 +272,13 @@ api.delete("/shipments/:id", async (c) => {
 api.post("/shipments/:id/pos", async (c) => {
   const id = Number(c.req.param("id"));
   const { po_id } = await c.req.json<{ po_id: number }>();
-  await c.env.DB.prepare(`INSERT OR IGNORE INTO shipment_pos (shipment_id, po_id) VALUES (?, ?)`).bind(id, po_id).run();
+  const db = c.env.DB;
+  const linked = await db.prepare(`SELECT 1 FROM shipment_pos WHERE shipment_id = ? AND po_id = ?`).bind(id, po_id).first();
+  if (linked) return c.json({ ok: true });
+  await db.batch([
+    db.prepare(`INSERT INTO shipment_pos (shipment_id, po_id) VALUES (?, ?)`).bind(id, po_id),
+    addEntry(db, po_id, { kind: "linked", actor: c.get("user"), shipment_id: id }),
+  ]);
   return c.json({ ok: true });
 });
 
@@ -257,14 +287,20 @@ api.post("/shipments/:id/containers", async (c) => {
   const { number } = await c.req.json<{ number: string }>();
   const n = normalizeContainerNumber(number ?? "");
   if (!/^[A-Z]{4}\d{6,8}$/.test(n)) return c.json({ error: "Container number should look like ABCU1234567" }, 400);
-  await c.env.DB.prepare(
-    `INSERT OR IGNORE INTO containers (shipment_id, number, number_valid, milestone, eta, original_eta, original_eta_source)
-     SELECT ?, ?, ?, 'booked', eta, COALESCE(original_eta, eta),
-       CASE WHEN original_eta IS NOT NULL THEN original_eta_source WHEN eta IS NOT NULL THEN 'manual' END
-     FROM shipments WHERE id = ?`,
-  )
-    .bind(id, n, isValidContainerNumber(n) ? 1 : 0, id)
-    .run();
+  const db = c.env.DB;
+  const exists = await db.prepare(`SELECT 1 FROM containers WHERE shipment_id = ? AND number = ?`).bind(id, n).first();
+  if (!exists)
+    await db.batch([
+      db
+        .prepare(
+          `INSERT INTO containers (shipment_id, number, number_valid, milestone, eta, original_eta, original_eta_source)
+           SELECT ?, ?, ?, 'booked', eta, COALESCE(original_eta, eta),
+             CASE WHEN original_eta IS NOT NULL THEN original_eta_source WHEN eta IS NOT NULL THEN 'manual' END
+           FROM shipments WHERE id = ?`,
+        )
+        .bind(id, n, isValidContainerNumber(n) ? 1 : 0, id),
+      forShipmentPos(db, id, { kind: "container_added", actor: c.get("user"), container_number: n }),
+    ]);
   return c.json({ ok: true, valid: isValidContainerNumber(n) });
 });
 
@@ -317,9 +353,28 @@ api.patch("/containers/:id", async (c) => {
     }
   if (body.milestone === "received" && !("received_at" in body)) sets.push("received_at = COALESCE(received_at, date('now'))");
   if (!sets.length) return c.json({ ok: true });
-  await c.env.DB.prepare(`UPDATE containers SET ${sets.join(", ")}, updated_at = datetime('now') WHERE id = ?`)
-    .bind(...binds, id)
-    .run();
+  const db = c.env.DB;
+  const actor = c.get("user");
+  const prev = await db
+    .prepare(`SELECT shipment_id, number, milestone, elm_delivery_appt, received_at FROM containers WHERE id = ?`)
+    .bind(id)
+    .first<{ shipment_id: number; number: string; milestone: string; elm_delivery_appt: string | null; received_at: string | null }>();
+  if (!prev) return c.json({ error: "Not found" }, 404);
+  const stmts: D1PreparedStatement[] = [];
+  const onPos = (e: Parameters<typeof forShipmentPos>[2]) =>
+    stmts.push(forShipmentPos(db, prev.shipment_id, { container_number: prev.number, ...e }));
+  if (body.milestone && body.milestone !== prev.milestone)
+    onPos({ kind: "milestone", actor, field: "milestone", old_value: prev.milestone, new_value: body.milestone });
+  // Logged changes: delivery appointment and received date (size and other fields are not).
+  const nextReceived =
+    "received_at" in body ? body.received_at || null : body.milestone === "received" ? (prev.received_at ?? today()) : prev.received_at;
+  const nextAppt = "elm_delivery_appt" in body ? body.elm_delivery_appt || null : prev.elm_delivery_appt;
+  if (nextAppt !== prev.elm_delivery_appt)
+    onPos({ kind: "container_changed", actor, field: "elm_delivery_appt", old_value: prev.elm_delivery_appt, new_value: nextAppt });
+  if (nextReceived !== prev.received_at)
+    onPos({ kind: "container_changed", actor, field: "received_at", old_value: prev.received_at, new_value: nextReceived });
+  stmts.push(db.prepare(`UPDATE containers SET ${sets.join(", ")}, updated_at = datetime('now') WHERE id = ?`).bind(...binds, id));
+  await db.batch(stmts);
   if (body.milestone) {
     await c.env.DB.prepare(
       `INSERT INTO tracking_events (shipment_id, container_id, event, occurred_at, source)
@@ -328,16 +383,26 @@ api.patch("/containers/:id", async (c) => {
       .bind(`manual.${body.milestone}`, id)
       .run();
     // close the shipment when every container is received
-    await c.env.DB.prepare(
-      `UPDATE shipments SET status = 'received' WHERE id = (SELECT shipment_id FROM containers WHERE id = ?)
-       AND NOT EXISTS (SELECT 1 FROM containers WHERE shipment_id = shipments.id AND milestone != 'received')`,
-    )
-      .bind(id)
-      .run();
-    const closed = await c.env.DB.prepare(
-      `SELECT s.id FROM shipments s JOIN containers c ON c.shipment_id = s.id WHERE c.id = ? AND s.status = 'received'`,
-    )
-      .bind(id)
+    const open = await db
+      .prepare(`SELECT status FROM shipments WHERE id = ? AND status != 'received'
+                AND NOT EXISTS (SELECT 1 FROM containers WHERE shipment_id = shipments.id AND milestone != 'received')`)
+      .bind(prev.shipment_id)
+      .first<{ status: string }>();
+    if (open)
+      await db.batch([
+        forShipmentPos(db, prev.shipment_id, {
+          kind: "shipment_status",
+          actor,
+          field: "status",
+          old_value: open.status,
+          new_value: "received",
+          body: "Every container received",
+        }),
+        db.prepare(`UPDATE shipments SET status = 'received', updated_at = datetime('now') WHERE id = ?`).bind(prev.shipment_id),
+      ]);
+    const closed = await db
+      .prepare(`SELECT id FROM shipments WHERE id = ? AND status = 'received'`)
+      .bind(prev.shipment_id)
       .first<{ id: number }>();
     if (closed) await stopTracking(c.env, closed.id);
   }
@@ -345,7 +410,14 @@ api.patch("/containers/:id", async (c) => {
 });
 
 api.delete("/containers/:id", async (c) => {
-  await c.env.DB.prepare(`DELETE FROM containers WHERE id = ?`).bind(Number(c.req.param("id"))).run();
+  const id = Number(c.req.param("id"));
+  const db = c.env.DB;
+  const row = await db.prepare(`SELECT shipment_id, number FROM containers WHERE id = ?`).bind(id).first<{ shipment_id: number; number: string }>();
+  if (!row) return c.json({ ok: true });
+  await db.batch([
+    forShipmentPos(db, row.shipment_id, { kind: "container_removed", actor: c.get("user"), container_number: row.number }),
+    db.prepare(`DELETE FROM containers WHERE id = ?`).bind(id),
+  ]);
   return c.json({ ok: true });
 });
 
@@ -385,26 +457,35 @@ api.post("/pos", async (c) => {
   const num = (b.po_number ?? "").trim().toUpperCase().replace(/\s+/g, "");
   if (!num) return c.json({ error: "PO number required" }, 400);
   const vid = await vendorId(c.env, b.vendor);
+  const db = c.env.DB;
+  const initial = {
+    vendor: b.vendor?.trim() || null,
+    vendor_pi: b.vendor_pi || null,
+    order_date: b.order_date || today(),
+    payment_status: b.payment_status || null,
+    forwarder: b.forwarder || null,
+    crd: b.crd || null,
+    description: b.description || null,
+  };
+  // The "created" entry records the starting values, so later field changes read as old -> new.
+  const snapshot = JSON.stringify(Object.fromEntries(Object.entries(initial).filter(([, v]) => v !== null)));
   try {
-    const row = await c.env.DB.prepare(
-      `INSERT INTO purchase_orders (po_number, vendor_id, vendor_pi, order_date, payment_status, forwarder, crd, description)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-    )
-      .bind(
-        num,
-        vid,
-        b.vendor_pi || null,
-        b.order_date || today(),
-        b.payment_status || null,
-        b.forwarder || null,
-        b.crd || null,
-        b.description || null,
-      )
-      .first<{ id: number }>();
-    return c.json({ id: row!.id }, 201);
+    await db.batch([
+      db
+        .prepare(
+          `INSERT INTO purchase_orders (po_number, vendor_id, vendor_pi, order_date, payment_status, forwarder, crd, description)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(num, vid, initial.vendor_pi, initial.order_date, initial.payment_status, initial.forwarder, initial.crd, initial.description),
+      db
+        .prepare(`INSERT INTO po_history (po_id, actor, kind, body) SELECT id, ?, 'created', ? FROM purchase_orders WHERE po_number = ?`)
+        .bind(c.get("user"), snapshot, num),
+    ]);
   } catch (e) {
     return c.json({ error: `PO ${num} already exists` }, 409);
   }
+  const row = await db.prepare(`SELECT id FROM purchase_orders WHERE po_number = ?`).bind(num).first<{ id: number }>();
+  return c.json({ id: row!.id }, 201);
 });
 
 const PO_FIELDS = ["vendor_pi", "order_date", "payment_status", "forwarder", "crd", "status", "description"] as const;
@@ -423,18 +504,35 @@ api.patch("/pos/:id", async (c) => {
     binds.push(await vendorId(c.env, b.vendor));
   }
   if (!sets.length) return c.json({ ok: true });
-  await c.env.DB.prepare(`UPDATE purchase_orders SET ${sets.join(", ")}, updated_at = datetime('now') WHERE id = ?`)
-    .bind(...binds, id)
-    .run();
+  const db = c.env.DB;
+  // History statements compare against the stored values, so they run first in the same transaction.
+  await db.batch([
+    ...poFieldChanges(db, id, b, c.get("user")),
+    db.prepare(`UPDATE purchase_orders SET ${sets.join(", ")}, updated_at = datetime('now') WHERE id = ?`).bind(...binds, id),
+  ]);
   return c.json({ ok: true });
 });
 
+// A note on a PO goes in that PO's history. A note on a shipment (or one of its
+// containers) goes in the history of every PO on the shipment.
 api.post("/notes", async (c) => {
   const b = await c.req.json<{ po_id?: number; shipment_id?: number; container_id?: number; body: string }>();
-  if (!b.body?.trim()) return c.json({ error: "Empty note" }, 400);
-  await c.env.DB.prepare(`INSERT INTO notes (po_id, shipment_id, container_id, author, body) VALUES (?, ?, ?, ?, ?)`)
-    .bind(b.po_id ?? null, b.shipment_id ?? null, b.container_id ?? null, c.get("user"), b.body.trim())
-    .run();
+  const text = b.body?.trim();
+  if (!text) return c.json({ error: "Empty note" }, 400);
+  const db = c.env.DB;
+  const actor = c.get("user");
+  const container = b.container_id
+    ? await db.prepare(`SELECT shipment_id, number FROM containers WHERE id = ?`).bind(b.container_id).first<{ shipment_id: number; number: string }>()
+    : null;
+  const shipmentId = b.shipment_id ?? container?.shipment_id ?? null;
+  const entry = { kind: "note" as const, actor, body: text, shipment_id: shipmentId, container_number: container?.number ?? null };
+  const stmts = [
+    db.prepare(`INSERT INTO notes (po_id, shipment_id, container_id, author, body) VALUES (?, ?, ?, ?, ?)`)
+      .bind(b.po_id ?? null, shipmentId, b.container_id ?? null, actor, text),
+  ];
+  if (b.po_id) stmts.push(addEntry(db, b.po_id, entry));
+  else if (shipmentId) stmts.push(forShipmentPos(db, shipmentId, entry));
+  await db.batch(stmts);
   return c.json({ ok: true }, 201);
 });
 

@@ -307,7 +307,7 @@ function Notes({ s, onAdded }: { s: SD; onAdded: () => void }) {
         className="mb-3 flex gap-2"
         onSubmit={async (e) => {
           e.preventDefault();
-          await api.post("/notes", { shipment_id: s.id, po_id: s.pos[0]?.id, body });
+          await api.post("/notes", { shipment_id: s.id, body });
           setBody("");
           onAdded();
         }}
