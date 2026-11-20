@@ -1,31 +1,17 @@
-import { readFileSync } from "node:fs";
 import { createHmac } from "node:crypto";
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { applyTracking } from "../worker/lib/sync";
 import { verifyWebhookSignature, type TtcEvent, type TtcTrackingData } from "../worker/lib/timetocargo";
 import type { Env } from "../worker/env";
-
-/** Minimal D1 stand-in backed by node:sqlite. */
-function fakeD1(db: DatabaseSync): D1Database {
-  const stmt = (sql: string, args: unknown[] = []) => ({
-    bind: (...a: unknown[]) => stmt(sql, a),
-    run: async () => ({ meta: { changes: Number(db.prepare(sql).run(...(args as never[])).changes) } }),
-    first: async () => db.prepare(sql).get(...(args as never[])) ?? null,
-    all: async () => ({ results: db.prepare(sql).all(...(args as never[])) }),
-  });
-  return { prepare: (sql: string) => stmt(sql) } as unknown as D1Database;
-}
+import { fakeD1, freshDb } from "./helpers/d1";
 
 let db: DatabaseSync;
 let env: Env;
 
 beforeEach(() => {
   vi.spyOn(console, "log").mockImplementation(() => {});
-  db = new DatabaseSync(":memory:");
-  db.exec(readFileSync("migrations/0001_init.sql", "utf8"));
-  db.exec(readFileSync("migrations/0002_timetocargo.sql", "utf8"));
-  db.exec(readFileSync("migrations/0003_original_eta_source.sql", "utf8"));
+  db = freshDb();
   db.exec(`INSERT INTO shipments (id, mode, carrier_scac, mbl, eta, status) VALUES (1, 'ocean', 'EGLV', 'EGLV1', '2026-11-20', 'active');
            INSERT INTO containers (id, shipment_id, number, milestone, eta) VALUES (1, 1, 'TGHU5303645', 'departed', '2026-11-20');`);
   env = { DB: fakeD1(db), ALERT_FROM: "x", ALERT_TO: "", APP_URL: "http://localhost" } as Env;
