@@ -47,8 +47,19 @@ export const HISTORY_KINDS: Record<string, string> = {
 };
 export const TRACKING_KINDS = new Set(["tracking_event", "milestone"]);
 
-/** "Nov 20, 2026, 2:14 PM" in the viewer's own time zone. */
+/**
+ * Some backfilled entries only know their date ("YYYY-MM-DDZ": the spreadsheet import kept
+ * no times). They are shown as that calendar date, with no time and no time-zone shift.
+ */
+export const isDateOnly = (s: string) => /^\d{4}-\d{2}-\d{2}Z?$/.test(s);
+const localDate = (s: string) => {
+  const [y, m, d] = s.slice(0, 10).split("-").map(Number);
+  return new Date(y, m - 1, d);
+};
+
+/** "Nov 20, 2026, 2:14 PM" in the viewer's own time zone ("Mar 17, 2025" when only the date is known). */
 export function fmtTimestamp(iso: string): string {
+  if (isDateOnly(iso)) return localDate(iso).toLocaleDateString(undefined, { dateStyle: "medium" });
   return new Date(normalizeUtc(iso)).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
@@ -163,7 +174,8 @@ export function HistoryTimeline({ entries }: { entries: HistoryEntry[] }) {
   if (!entries.length) return <p className="text-sm text-slate-500">Nothing recorded yet.</p>;
   const days = new Map<string, HistoryEntry[]>();
   for (const e of [...entries].reverse()) {
-    const day = new Date(normalizeUtc(e.recorded_at)).toLocaleDateString(undefined, { dateStyle: "full" });
+    const when = isDateOnly(e.recorded_at) ? localDate(e.recorded_at) : new Date(normalizeUtc(e.recorded_at));
+    const day = when.toLocaleDateString(undefined, { dateStyle: "full" });
     days.set(day, [...(days.get(day) ?? []), e]);
   }
   return (
@@ -178,9 +190,13 @@ export function HistoryTimeline({ entries }: { entries: HistoryEntry[] }) {
                 <li key={e.id} className={`relative text-sm ${tracking ? "text-slate-600" : ""}`}>
                   <span className={`absolute -left-[21px] top-1.5 h-2 w-2 rounded-full ${tracking ? "bg-slate-300" : "bg-teal-600"}`} />
                   <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                    <time className="w-16 shrink-0 text-xs tabular-nums text-slate-500" dateTime={e.recorded_at} title={fmtTimestamp(e.recorded_at)}>
-                      {new Date(normalizeUtc(e.recorded_at)).toLocaleTimeString(undefined, { timeStyle: "short" })}
-                    </time>
+                    {isDateOnly(e.recorded_at) ? (
+                      <span className="w-16 shrink-0 text-xs text-slate-400" title="Only the date was recorded">—</span>
+                    ) : (
+                      <time className="w-16 shrink-0 text-xs tabular-nums text-slate-500" dateTime={e.recorded_at} title={fmtTimestamp(e.recorded_at)}>
+                        {new Date(normalizeUtc(e.recorded_at)).toLocaleTimeString(undefined, { timeStyle: "short" })}
+                      </time>
+                    )}
                     <span className="min-w-0">{describe(e)}</span>
                     <Subject e={e} />
                     {e.pre_history ? (

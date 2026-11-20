@@ -140,6 +140,20 @@ describe("Activity Feed", () => {
     expect(lines[1]).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},/);
   });
 
+  it("handles backfilled entries that only know their date", async () => {
+    db.exec(`INSERT INTO po_history (po_id, actor, kind, body, pre_history, recorded_at) VALUES
+      (2, 'import', 'note', 'From the spreadsheet', 1, '2025-03-17Z'),
+      (2, 'import', 'note', 'Later that day', 1, '2025-03-17T15:00:00.000Z')`);
+    // sorts at the start of its day
+    const po = (await call("GET", "/pos/2")).json.history as { body: string }[];
+    expect(po.slice(0, 2).map((h) => h.body)).toEqual(["From the spreadsheet", "Later that day"]);
+    // CSV writes the plain date instead of failing
+    const res = await app.request("/history.csv?po=5872&from=2025-01-01T00:00:00.000Z", {}, env);
+    expect(res.status).toBe(200);
+    const row = (await res.text()).split("\r\n").find((l) => l.includes("From the spreadsheet"))!;
+    expect(row.startsWith("2025-03-17,2025-03-17,5872ELM,")).toBe(true);
+  });
+
   it("lists who appears in the history", async () => {
     expect((await call("GET", "/history/actors")).json).toEqual(["Carrier tracking", USER]);
   });

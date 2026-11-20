@@ -460,7 +460,7 @@ api.get("/pos/:id", async (c) => {
     db
       .prepare(
         `SELECT h.*, EXISTS (SELECT 1 FROM shipments s WHERE s.id = h.shipment_id) AS shipment_exists
-         FROM po_history h WHERE h.po_id = ? ORDER BY h.recorded_at, h.id`,
+         FROM po_history h WHERE h.po_id = ? ORDER BY ${RECORDED_ORDER}, h.id`,
       )
       .bind(id)
       .all(),
@@ -473,6 +473,10 @@ api.get("/pos/:id", async (c) => {
 });
 
 // ---- Activity Feed: History Entries across all POs
+
+// Some backfilled entries only know their date ("YYYY-MM-DDZ", from the spreadsheet import).
+// They sort at the start of their day.
+const RECORDED_ORDER = `CASE WHEN length(h.recorded_at) < 20 THEN substr(h.recorded_at, 1, 10) || 'T00:00:00.000Z' ELSE h.recorded_at END`;
 
 const TRACKING_KINDS = ["tracking_event", "milestone"];
 
@@ -507,7 +511,7 @@ api.get("/history", async (c) => {
   const offset = Math.max(Number(c.req.query("offset") ?? 0) || 0, 0);
   const { results } = await c.env.DB.prepare(
     `SELECT h.*, po.po_number, v.name AS vendor, EXISTS (SELECT 1 FROM shipments s WHERE s.id = h.shipment_id) AS shipment_exists
-     ${f.sql} ORDER BY h.recorded_at DESC, h.id DESC LIMIT ? OFFSET ?`,
+     ${f.sql} ORDER BY ${RECORDED_ORDER} DESC, h.id DESC LIMIT ? OFFSET ?`,
   )
     .bind(...f.binds, limit + 1, offset)
     .all();
@@ -520,6 +524,9 @@ api.get("/history/actors", async (c) => {
   return c.json(results.map((r) => r.actor));
 });
 
+/** True for entries that only know their date, not the time. */
+const dateOnly = (s: unknown) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}Z?$/.test(s);
+
 const csvCell = (v: unknown) => {
   const s = v === null || v === undefined ? "" : String(v);
   // Quote when needed; prefix formula-like text so spreadsheets don't execute it.
@@ -530,7 +537,7 @@ const csvCell = (v: unknown) => {
 api.get("/history.csv", async (c) => {
   const f = historyFilter((k) => c.req.query(k));
   const { results } = await c.env.DB.prepare(
-    `SELECT h.*, po.po_number, v.name AS vendor ${f.sql} ORDER BY h.recorded_at DESC, h.id DESC LIMIT 50000`,
+    `SELECT h.*, po.po_number, v.name AS vendor ${f.sql} ORDER BY ${RECORDED_ORDER} DESC, h.id DESC LIMIT 50000`,
   )
     .bind(...f.binds)
     .all<Record<string, unknown>>();
@@ -547,8 +554,8 @@ api.get("/history.csv", async (c) => {
   ];
   const lines = results.map((h) =>
     [
-      local.format(new Date(h.recorded_at as string)).replace(",", ""),
-      h.recorded_at,
+      dateOnly(h.recorded_at) ? String(h.recorded_at).slice(0, 10) : local.format(new Date(h.recorded_at as string)).replace(",", ""),
+      dateOnly(h.recorded_at) ? String(h.recorded_at).slice(0, 10) : h.recorded_at,
       h.po_number,
       h.vendor,
       h.actor,
