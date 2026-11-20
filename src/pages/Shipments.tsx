@@ -256,7 +256,7 @@ function PoLine({ p, onChange }: { p: PurchaseOrder; onChange: () => void }) {
             <option value="received">PO received</option>
             <option value="cancelled">PO cancelled</option>
           </select>
-          <PaymentSelect value={p.payment_status} onChange={(v) => patch({ payment_status: v })} />
+          <PaymentSelect po={p} onSave={patch} />
         </div>
       </td>
       <td className="whitespace-nowrap" colSpan={2}>

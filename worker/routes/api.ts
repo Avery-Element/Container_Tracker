@@ -7,6 +7,7 @@ import { normalizeContainerNumber, isValidContainerNumber } from "../../shared/c
 import { carrierByScac, carrierFromMbl } from "../../shared/carriers";
 import { MILESTONE_ORDER } from "../../shared/milestones";
 import { addEntry, forShipmentPos, poFieldChanges } from "../lib/history";
+import { resolvePayment } from "../../shared/payment";
 
 type Vars = { Variables: { user: string } };
 export const api = new Hono<{ Bindings: Env } & Vars>();
@@ -17,7 +18,8 @@ const dayOf = (s: string | null | undefined) => (s ? s.slice(0, 10) : null);
 // Shipment list query reused by the dashboard and shipments page.
 const SHIPMENT_SELECT = `
   SELECT s.*,
-    (SELECT json_group_array(json_object('id', po.id, 'po_number', po.po_number, 'payment_status', po.payment_status, 'order_date', po.order_date))
+    (SELECT json_group_array(json_object('id', po.id, 'po_number', po.po_number, 'payment_status', po.payment_status,
+        'deposit_paid_on', po.deposit_paid_on, 'paid_on', po.paid_on, 'order_date', po.order_date))
        FROM shipment_pos sp JOIN purchase_orders po ON po.id = sp.po_id WHERE sp.shipment_id = s.id) AS pos_json,
     (SELECT v.name FROM shipment_pos sp JOIN purchase_orders po ON po.id = sp.po_id
        JOIN vendors v ON v.id = po.vendor_id WHERE sp.shipment_id = s.id LIMIT 1) AS vendor,
@@ -456,13 +458,17 @@ api.post("/pos", async (c) => {
   const b = await c.req.json<Record<string, string>>();
   const num = (b.po_number ?? "").trim().toUpperCase().replace(/\s+/g, "");
   if (!num) return c.json({ error: "PO number required" }, 400);
+  const pay = resolvePayment({}, { payment_status: "not_paid", ...b }, today());
+  if ("error" in pay) return c.json({ error: pay.error }, 400);
   const vid = await vendorId(c.env, b.vendor);
   const db = c.env.DB;
   const initial = {
     vendor: b.vendor?.trim() || null,
     vendor_pi: b.vendor_pi || null,
     order_date: b.order_date || today(),
-    payment_status: b.payment_status || null,
+    payment_status: pay.fields.payment_status ?? "not_paid",
+    deposit_paid_on: pay.fields.deposit_paid_on ?? null,
+    paid_on: pay.fields.paid_on ?? null,
     forwarder: b.forwarder || null,
     crd: b.crd || null,
     description: b.description || null,
@@ -473,10 +479,22 @@ api.post("/pos", async (c) => {
     await db.batch([
       db
         .prepare(
-          `INSERT INTO purchase_orders (po_number, vendor_id, vendor_pi, order_date, payment_status, forwarder, crd, description)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO purchase_orders (po_number, vendor_id, vendor_pi, order_date, payment_status, deposit_paid_on, paid_on,
+             forwarder, crd, description)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
-        .bind(num, vid, initial.vendor_pi, initial.order_date, initial.payment_status, initial.forwarder, initial.crd, initial.description),
+        .bind(
+          num,
+          vid,
+          initial.vendor_pi,
+          initial.order_date,
+          initial.payment_status,
+          initial.deposit_paid_on,
+          initial.paid_on,
+          initial.forwarder,
+          initial.crd,
+          initial.description,
+        ),
       db
         .prepare(`INSERT INTO po_history (po_id, actor, kind, body) SELECT id, ?, 'created', ? FROM purchase_orders WHERE po_number = ?`)
         .bind(c.get("user"), snapshot, num),
@@ -488,10 +506,29 @@ api.post("/pos", async (c) => {
   return c.json({ id: row!.id }, 201);
 });
 
-const PO_FIELDS = ["vendor_pi", "order_date", "payment_status", "forwarder", "crd", "status", "description"] as const;
+const PO_FIELDS = [
+  "vendor_pi",
+  "order_date",
+  "payment_status",
+  "deposit_paid_on",
+  "paid_on",
+  "forwarder",
+  "crd",
+  "status",
+  "description",
+] as const;
 api.patch("/pos/:id", async (c) => {
   const id = Number(c.req.param("id"));
   const b = await c.req.json<Record<string, string | null>>();
+  if ("payment_status" in b || "deposit_paid_on" in b || "paid_on" in b) {
+    const current = await c.env.DB.prepare(`SELECT payment_status, deposit_paid_on, paid_on FROM purchase_orders WHERE id = ?`)
+      .bind(id)
+      .first<{ payment_status: string | null; deposit_paid_on: string | null; paid_on: string | null }>();
+    if (!current) return c.json({ error: "Not found" }, 404);
+    const pay = resolvePayment(current, b, today());
+    if ("error" in pay) return c.json({ error: pay.error }, 400);
+    Object.assign(b, pay.fields);
+  }
   const sets: string[] = [];
   const binds: unknown[] = [];
   for (const f of PO_FIELDS)

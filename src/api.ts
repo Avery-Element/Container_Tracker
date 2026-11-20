@@ -20,6 +20,8 @@ export interface PoRef {
   id: number;
   po_number: string;
   payment_status: string | null;
+  deposit_paid_on?: string | null;
+  paid_on?: string | null;
   order_date: string | null;
 }
 
@@ -73,6 +75,8 @@ export interface PurchaseOrder {
   vendor_pi: string | null;
   order_date: string | null;
   payment_status: string | null;
+  deposit_paid_on?: string | null;
+  paid_on?: string | null;
   forwarder: string | null;
   crd: string | null;
   status: string;

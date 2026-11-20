@@ -58,11 +58,40 @@ describe("POs", () => {
   });
 
   it("logs each changed field, and nothing for unchanged ones", async () => {
-    await call("PATCH", "/pos/1", { payment_status: "deposit_paid", crd: "2026-11-01", vendor: "Globex" });
+    await call("PATCH", "/pos/1", { forwarder: "THI", crd: "2026-11-01", vendor: "Globex" });
     expect(history(1).map((e) => [e.field, e.old_value, e.new_value, e.actor])).toEqual([
-      ["payment_status", "not_paid", "deposit_paid", USER],
+      ["forwarder", null, "THI", USER],
       ["vendor", "Acme", "Globex", USER],
     ]);
+  });
+});
+
+describe("payment", () => {
+  it("logs status and date as two entries from one save", async () => {
+    await call("PATCH", "/pos/1", { payment_status: "deposit_paid", deposit_paid_on: "2026-11-03" });
+    expect(history(1).map((e) => [e.field, e.old_value, e.new_value])).toEqual([
+      ["payment_status", "not_paid", "deposit_paid"],
+      ["deposit_paid_on", null, "2026-11-03"],
+    ]);
+    expect(db.prepare(`SELECT payment_status, deposit_paid_on FROM purchase_orders WHERE id = 1`).get()).toEqual({
+      payment_status: "deposit_paid",
+      deposit_paid_on: "2026-11-03",
+    });
+  });
+
+  it("rejects a status outside the fixed list and logs nothing", async () => {
+    const res = await call("PATCH", "/pos/1", { payment_status: "half" });
+    expect(res.status).toBe(400);
+    expect(history(1)).toEqual([]);
+  });
+
+  it("stores the payment date on a new PO", async () => {
+    const { json } = await call("POST", "/pos", { po_number: "6000ELM", payment_status: "paid", paid_on: "2026-11-10" });
+    expect(db.prepare(`SELECT payment_status, paid_on FROM purchase_orders WHERE id = ?`).get(json.id as number)).toEqual({
+      payment_status: "paid",
+      paid_on: "2026-11-10",
+    });
+    expect(JSON.parse(history(json.id as number)[0].body as string)).toMatchObject({ payment_status: "paid", paid_on: "2026-11-10" });
   });
 });
 

@@ -43,10 +43,7 @@ export default function ShipmentDetail() {
             {s.pos.map((p) => (
               <span key={p.id} className="flex items-center gap-1.5 text-xs">
                 {p.po_number}
-                <PaymentSelect
-                  value={p.payment_status}
-                  onChange={async (v) => (await api.patch(`/pos/${p.id}`, { payment_status: v }), reload())}
-                />
+                <PaymentSelect po={p} onSave={async (patch) => (await api.patch(`/pos/${p.id}`, patch), reload())} />
               </span>
             ))}
           </div>
