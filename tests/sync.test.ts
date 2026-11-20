@@ -150,6 +150,103 @@ describe("applyTracking (TimeToCargo)", () => {
   });
 });
 
+describe("PO History from tracking", () => {
+  const history = () =>
+    db
+      .prepare(`SELECT po_id, actor, kind, old_value, new_value, container_number, occurred_at, body FROM po_history ORDER BY id`)
+      .all() as Record<string, unknown>[];
+
+  beforeEach(() => {
+    db.exec(`INSERT INTO purchase_orders (id, po_number) VALUES (1, '5871ELM'), (2, '5872ELM');
+             INSERT INTO shipment_pos (shipment_id, po_id) VALUES (1, 1), (1, 2);
+             UPDATE containers SET milestone = 'booked' WHERE id = 1;`);
+  });
+
+  const origin = [ev("CGI", "2026-10-15T09:00:00", true, { vessel: null }), ev("CLL", "2026-10-19T10:00:00", true)];
+
+  it("logs every raw event before departure, on every PO, as Carrier tracking", async () => {
+    await applyTracking(env, 1, data(origin)); // not sailed yet
+    const raw = history().filter((h) => h.kind === "tracking_event");
+    expect(raw.map((h) => [h.po_id, h.actor, h.body, h.occurred_at])).toEqual([
+      [1, "Carrier tracking", "Gated in at origin port · Yantian, China", "2026-10-15T09:00:00"],
+      [2, "Carrier tracking", "Gated in at origin port · Yantian, China", "2026-10-15T09:00:00"],
+      [1, "Carrier tracking", "Loaded on vessel · Yantian, China · EVER X", "2026-10-19T10:00:00"],
+      [2, "Carrier tracking", "Loaded on vessel · Yantian, China · EVER X", "2026-10-19T10:00:00"],
+    ]);
+    expect(history().some((h) => h.kind === "milestone")).toBe(false); // loaded is before departure
+  });
+
+  it("after departure logs milestone changes only, with when they happened", async () => {
+    await applyTracking(env, 1, data(origin));
+    const voyage = [...origin, ev("VDL", "2026-10-20T08:00:00", true), ev("VAT", "2026-10-28T08:00:00", true, { location: 1 })];
+    await applyTracking(env, 1, data(voyage));
+    await applyTracking(env, 1, data([...voyage, ev("VAD", "2026-11-12T08:00:00", true), ev("CDD", "2026-11-13T08:00:00", true)]));
+    const po1 = history().filter((h) => h.po_id === 1 && h.kind !== "eta_changed");
+    // Each sync jumped several steps; every milestone passed is still logged, in order.
+    expect(po1.map((h) => [h.kind, h.old_value, h.new_value, h.occurred_at])).toEqual([
+      ["tracking_event", null, null, "2026-10-15T09:00:00"],
+      ["tracking_event", null, null, "2026-10-19T10:00:00"],
+      ["milestone", "loaded", "departed", "2026-10-20T08:00:00"],
+      ["milestone", "departed", "transshipment", "2026-10-28T08:00:00"],
+      ["milestone", "transshipment", "arrived", "2026-11-12T08:00:00"],
+      ["milestone", "arrived", "discharged", "2026-11-13T08:00:00"],
+    ]);
+  });
+
+  it("logs Departed for carriers that send no VDL event", async () => {
+    await applyTracking(env, 1, data(origin));
+    await applyTracking(env, 1, data([...origin, ev("CLT", "2026-10-28T00:00:00", true)]));
+    const steps = history().filter((h) => h.kind === "milestone" && h.po_id === 1);
+    expect(steps.map((h) => [h.new_value, h.occurred_at])).toEqual([
+      ["departed", "2026-10-20T00:00:00"], // summary POL date
+      ["transshipment", "2026-10-28T00:00:00"],
+    ]);
+  });
+
+  it("does not treat an origin gate-out as reaching Out-gated", async () => {
+    await applyTracking(env, 1, data([ev("CGO", "2026-10-18T09:00:00", true), ...departed]));
+    expect(history().filter((h) => h.kind === "milestone" && h.po_id === 1).map((h) => h.new_value)).toEqual(["departed"]);
+    // ...but it is still logged as a raw origin event
+    expect(history().filter((h) => h.kind === "tracking_event" && h.po_id === 1).map((h) => h.body)).toEqual([
+      "Gated out · Yantian, China · EVER X",
+      "Loaded on vessel · Yantian, China · EVER X",
+    ]);
+  });
+
+  it("adds nothing when the same data syncs again", async () => {
+    const d = data([...origin, ev("VDL", "2026-10-20T08:00:00", true), ev("VAD", "2026-11-12T08:00:00", false)]);
+    await applyTracking(env, 1, d);
+    const n = history().length;
+    await applyTracking(env, 1, d);
+    await applyTracking(env, 1, d);
+    expect(history().length).toBe(n);
+  });
+
+  it("logs the shipment ETA only when the day changes", async () => {
+    await applyTracking(env, 1, data([...departed, ev("VAD", "2026-11-20T08:00:00", false)])); // same day as stored
+    await applyTracking(env, 1, data([...departed, ev("VAD", "2026-11-20T15:00:00", false)])); // same day, new time
+    await applyTracking(env, 1, data([...departed, ev("VAD", "2026-11-24T08:00:00", false)]));
+    const eta = history().filter((h) => h.kind === "eta_changed" && h.po_id === 1);
+    expect(eta.map((h) => [h.old_value, h.new_value, h.actor])).toEqual([["2026-11-20", "2026-11-24", "Carrier tracking"]]);
+  });
+
+  it("logs containers the carrier adds", async () => {
+    const d = data(origin);
+    d.containers!.push({ number: "MSCU1234566", type: null, iso_code: null, events: [] } as never);
+    await applyTracking(env, 1, d);
+    expect(history().filter((h) => h.kind === "container_added").map((h) => [h.po_id, h.container_number])).toEqual([
+      [1, "MSCU1234566"],
+      [2, "MSCU1234566"],
+    ]);
+  });
+
+  it("puts the carrier's ETA-overwrite note on every PO", async () => {
+    db.exec(`UPDATE shipments SET original_eta = '2026-11-01', original_eta_source = 'manual' WHERE id = 1;`);
+    await applyTracking(env, 1, data([...departed, ev("VAD", "2026-11-12T08:00:00", false)]));
+    expect(history().filter((h) => h.kind === "note").map((h) => h.po_id)).toEqual([1, 2]);
+  });
+});
+
 describe("webhook signature", () => {
   const secret = "abcDEF123_-abcDEF123_-";
   const body = '{"id":"evt_1","type":"tracking.test"}';

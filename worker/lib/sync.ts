@@ -12,12 +12,19 @@ import {
   listActive,
   TtcError,
   type BatchItem,
+  type TtcEvent,
   type TtcTrackingData,
 } from "./timetocargo";
 import { planTracking, ttcCompany } from "../../shared/carriers";
 import { isValidContainerNumber } from "../../shared/container-number";
-import { advanceMilestone, MILESTONE_ORDER, TTC_EVENTS } from "../../shared/milestones";
+import { advanceMilestone, MILESTONE_ORDER, MILESTONES, TTC_EVENTS } from "../../shared/milestones";
 import { raiseAlerts, type NewAlert } from "./alerts";
+import { AFTER_DEPARTURE, isOriginEvent, isVoyageMilestone } from "../../shared/history";
+import { CARRIER, forShipmentPos, type HistoryEntry } from "./history";
+
+/** Write one History Entry on every PO of a shipment, as "Carrier tracking". */
+const logForPos = (env: Env, shipmentId: number, e: Omit<HistoryEntry, "actor">) =>
+  forShipmentPos(env.DB, shipmentId, { actor: CARRIER, ...e }).run();
 
 interface ShipmentRow {
   id: number;
@@ -112,6 +119,7 @@ export async function startTracking(
       await env.DB.prepare(`UPDATE shipments SET tracking_status='not_trackable', tracking_error=? WHERE id=?`)
         .bind(plan.reason, id)
         .run();
+      await logForPos(env, id, { kind: "tracking_failed", body: plan.reason, dedupe_key: `trfail:${id}:none:${plan.reason}` });
       skipped.push(`#${id}: ${plan.reason}`);
       continue;
     }
@@ -128,10 +136,12 @@ export async function startTracking(
     taskId = await createBatch(key, items);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    for (const id of queued)
+    for (const id of queued) {
       await env.DB.prepare(`UPDATE shipments SET tracking_status='failed', tracking_error=? WHERE id=?`)
         .bind(msg, id)
         .run();
+      await logForPos(env, id, { kind: "tracking_failed", body: msg });
+    }
     return { ok: false, message: msg };
   }
   for (const id of queued)
@@ -185,6 +195,8 @@ export async function checkPendingTasks(env: Env): Promise<number> {
         await env.DB.prepare(`UPDATE shipments SET tracking_ids=?, tracking_task_id=NULL, tracking_status='tracking' WHERE id=?`)
           .bind(JSON.stringify([...ids]), s.id)
           .run();
+        // Only the first time tracking starts for this shipment, not every re-request.
+        await logForPos(env, s.id, { kind: "tracking_started", dedupe_key: `trstart:${s.id}` });
         for (const r of ok) await applyTracking(env, s.id, r.data!);
       } else {
         const reason =
@@ -193,6 +205,7 @@ export async function checkPendingTasks(env: Env): Promise<number> {
         await env.DB.prepare(`UPDATE shipments SET tracking_status='failed', tracking_error=?, tracking_task_id=NULL WHERE id=?`)
           .bind(reason, s.id)
           .run();
+        await logForPos(env, s.id, { kind: "tracking_failed", body: reason, dedupe_key: `trfail:${s.id}:${taskId}` });
         await raiseAlerts(env, [
           {
             shipmentId: s.id,
@@ -248,6 +261,30 @@ function sizeFrom(iso: string | null | undefined, type: string | null): string |
   return null;
 }
 
+/**
+ * Voyage Milestones a container passed going from `from` to `to`, with when each was
+ * reached. Includes `to` itself, and Departed when the vessel has sailed; skips steps
+ * with no evidence (e.g. no transshipment on a direct sailing). A hold <-> available
+ * swap is just the one step.
+ */
+function milestonesPassed(from: string, to: string, actual: TtcEvent[], departedAt: string | null) {
+  const reachedAt = (m: string) =>
+    actual
+      .filter((e) => TTC_EVENTS[e.status_code!]?.milestone === m)
+      // e.g. an origin gate-out (CGO) must not count as reaching "Out-gated" at destination
+      .filter((e) => m === "departed" || !departedAt || e.date! >= departedAt)
+      .map((e) => e.date!)
+      .sort()[0] ?? (m === "departed" ? departedAt : null);
+  const lo = MILESTONE_ORDER[from] ?? -1;
+  const hi = MILESTONE_ORDER[to] ?? -1;
+  if (hi <= lo) return isVoyageMilestone(to) ? [{ milestone: to, at: reachedAt(to) }] : [];
+  return MILESTONES.filter((m) => {
+    const o = MILESTONE_ORDER[m.key];
+    if (o <= lo || o > hi || !isVoyageMilestone(m.key)) return false;
+    return m.key === to || reachedAt(m.key) !== null;
+  }).map((m) => ({ milestone: m.key as string, at: reachedAt(m.key) }));
+}
+
 /** Write one TimeToCargo tracking result into our tables and raise alerts for changes. */
 export async function applyTracking(env: Env, shipmentId: number, d: TtcTrackingData) {
   const loc = (i: number | null | undefined) => {
@@ -269,7 +306,6 @@ export async function applyTracking(env: Env, shipmentId: number, d: TtcTracking
   const eta = vad?.date ?? podDate;
   // Some carriers (e.g. Evergreen) send no VDL event; if anything has happened
   // after loading at origin, the vessel has sailed on the summary POL date.
-  const AFTER_DEPARTURE = ["VDL", "VAT", "CDT", "TSD", "CLT", "VDT", "VAD", "CDD", "CGO", "CDC", "CER"];
   const sailed = events.some((e) => e.actual && AFTER_DEPARTURE.includes(e.status_code ?? ""));
   const etd = vdl?.date ?? d.summary?.pol?.date ?? null;
   const atd = vdl?.actual ? vdl.date : sailed ? etd : null;
@@ -284,9 +320,10 @@ export async function applyTracking(env: Env, shipmentId: number, d: TtcTracking
     overwritten.set(k, [...(overwritten.get(k) ?? []), label]);
   };
 
-  const prevShip = (await env.DB.prepare(`SELECT original_eta, original_eta_source FROM shipments WHERE id = ?`)
+  const prevShip = (await env.DB.prepare(`SELECT eta, original_eta, original_eta_source FROM shipments WHERE id = ?`)
     .bind(shipmentId)
-    .first<{ original_eta: string | null; original_eta_source: string | null }>()) ?? {
+    .first<{ eta: string | null; original_eta: string | null; original_eta_source: string | null }>()) ?? {
+    eta: null,
     original_eta: null,
     original_eta_source: null,
   };
@@ -313,6 +350,10 @@ export async function applyTracking(env: Env, shipmentId: number, d: TtcTracking
       shipmentId,
     )
     .run();
+
+  // Shipment ETA, logged only when the day changes (container ETAs are not logged).
+  if (eta && day(eta) !== day(prevShip.eta))
+    await logForPos(env, shipmentId, { kind: "eta_changed", field: "eta", old_value: day(prevShip.eta), new_value: day(eta) });
 
   if (d.shipment_status === "STUCK")
     alerts.push({
@@ -349,6 +390,7 @@ export async function applyTracking(env: Env, shipmentId: number, d: TtcTracking
         discharged_at: null,
         first_synced_at: null,
       };
+      await logForPos(env, shipmentId, { kind: "container_added", container_number: number });
     }
 
     const actual = (c.events ?? []).filter((e) => e.actual && e.date && e.status_code);
@@ -395,19 +437,41 @@ export async function applyTracking(env: Env, shipmentId: number, d: TtcTracking
 
     // Event history for the timeline (actual events only, deduped).
     for (const e of actual) {
-      await env.DB.prepare(
+      const label = TTC_EVENTS[e.status_code!]?.label ?? e.status ?? e.status_code;
+      const location = [loc(e.location), e.vessel].filter(Boolean).join(" · ") || null;
+      const key = `ttc:${number}:${e.status_code}:${e.date}`;
+      const ins = await env.DB.prepare(
         `INSERT OR IGNORE INTO tracking_events (shipment_id, container_id, event, occurred_at, location, source, external_id)
          VALUES (?, ?, ?, ?, ?, 'timetocargo', ?)`,
       )
-        .bind(
-          shipmentId,
-          row.id,
-          TTC_EVENTS[e.status_code!]?.label ?? e.status ?? e.status_code,
-          e.date,
-          [loc(e.location), e.vessel].filter(Boolean).join(" · ") || null,
-          `ttc:${number}:${e.status_code}:${e.date}`,
-        )
+        .bind(shipmentId, row.id, label, e.date, location, key)
         .run();
+      // PO History: every new raw event up to Origin departure; after that, Milestone changes only.
+      if (ins.meta.changes && isOriginEvent(e.status_code, e.date, atd))
+        await logForPos(env, shipmentId, {
+          kind: "tracking_event",
+          container_number: number,
+          occurred_at: e.date,
+          body: [label, location].filter(Boolean).join(" · "),
+          dedupe_key: key,
+        });
+    }
+
+    // One entry per voyage Milestone passed, in order, even when one sync jumps several
+    // steps (so "Departed" is never skipped).
+    if (milestone !== row.milestone) {
+      let from = row.milestone;
+      for (const step of milestonesPassed(row.milestone, milestone, actual, atd)) {
+        await logForPos(env, shipmentId, {
+          kind: "milestone",
+          field: "milestone",
+          container_number: number,
+          old_value: from,
+          new_value: step.milestone,
+          occurred_at: step.at,
+        });
+        from = step.milestone;
+      }
     }
 
     // ---- change detection -> alerts
@@ -444,6 +508,7 @@ export async function applyTracking(env: Env, shipmentId: number, d: TtcTracking
     await env.DB.prepare(`INSERT INTO notes (shipment_id, author, body) VALUES (?, 'carrier', ?)`)
       .bind(shipmentId, lines.join("\n"))
       .run();
+    await logForPos(env, shipmentId, { kind: "note", body: lines.join("\n") });
   }
 
   if (alerts.length) await raiseAlerts(env, alerts);
@@ -490,10 +555,13 @@ export async function handleWebhook(env: Env, body: TtcWebhook, raw: string) {
       )
         .bind(value)
         .first<{ id: number }>();
-      if (s)
+      if (s) {
+        const reason = `${value}: ${body.data?.tracking_status_description ?? body.data?.tracking_status ?? "not found"}`;
         await env.DB.prepare(`UPDATE shipments SET tracking_status='failed', tracking_error=? WHERE id=?`)
-          .bind(`${value}: ${body.data?.tracking_status_description ?? body.data?.tracking_status ?? "not found"}`, s.id)
+          .bind(reason, s.id)
           .run();
+        await logForPos(env, s.id, { kind: "tracking_failed", body: reason, dedupe_key: `trfail:${s.id}:${body.id}` });
+      }
     }
     return { type: body.type };
   }

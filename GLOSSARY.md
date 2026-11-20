@@ -42,4 +42,4 @@ _Avoid_: event, when you mean a History Entry
 A step on a container's journey: PO placed, Cargo ready, Booked, Loaded, Departed, Transshipment, Arrived, Discharged, On hold, Available, Out-gated, Delivered, Received. Many Tracking Events can map to the same Milestone.
 
 **Origin departure**
-The moment the vessel leaves the port of loading. In PO History, every Tracking Event up to this point is shown. After it, only changes in Milestone are shown.
+The moment the vessel leaves the port of loading. In PO History, every Tracking Event before this point is shown. The departure itself, and everything after it, is shown as Milestone changes: one per Milestone passed, starting with Departed.
