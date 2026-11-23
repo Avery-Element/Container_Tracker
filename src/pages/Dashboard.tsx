@@ -1,7 +1,7 @@
 import { Fragment } from "react";
 import { Link } from "react-router-dom";
 import { api, type Container, type Dashboard as D, type Shipment } from "../api";
-import { ContainerNumber, daysFrom, EditableDate, ErrorBox, EtaWithSlip, fmtDate, Holds, PaymentBadge, PoLinks, useApi, VoyageTrack } from "../components/ui";
+import { AWAITING_BOOKING, ContainerNumber, daysFrom, EditableDate, ErrorBox, EtaWithSlip, fmtDate, Holds, PaymentBadge, PoLinks, useApi, VoyageTrack } from "../components/ui";
 import { MILESTONES } from "../../shared/milestones";
 
 export interface Row {
@@ -107,7 +107,7 @@ export default function Dashboard() {
         <div className="card px-2 py-4">
           <Pipeline
             stops={[
-              { key: "awaiting", label: "Awaiting booking", n: data.pendingPos.length, to: "/shipments" },
+              { key: AWAITING_BOOKING, label: "Awaiting booking", n: data.pendingPos.length },
               ...MILESTONES.filter((m) => !["po_placed", "cargo_ready", "on_hold", "received"].includes(m.key)).map((m) => ({
                 key: m.key,
                 label: m.label,
@@ -235,10 +235,12 @@ interface Stop {
   label: string;
   n: number;
   hold?: number;
-  to?: string;
 }
 
-/** Counts at each stop along one line, like a transit map: where every container is right now. */
+/**
+ * Counts at each stop along one line, like a transit map: where every container is right now.
+ * A stop with anything at it links to the Shipments list filtered to that stop.
+ */
 function Pipeline({ stops }: { stops: Stop[] }) {
   return (
     <div className="overflow-x-auto pb-1">
@@ -259,9 +261,13 @@ function Pipeline({ stops }: { stops: Stop[] }) {
                 />
               </span>
               <span className={`px-1 text-xs leading-tight ${empty ? "text-slate-500" : "font-medium text-slate-800"}`}>
-                {s.to ? <Link to={s.to} className="hover:underline">{s.label}</Link> : s.label}
+                {empty ? s.label : <Link to={`/shipments?milestone=${s.key}`} className="hover:underline">{s.label}</Link>}
               </span>
-              {s.hold ? <span className="mt-0.5 text-xs font-semibold text-hold">{s.hold} on hold</span> : null}
+              {s.hold ? (
+                <Link to="/shipments?milestone=on_hold" className="mt-0.5 text-xs font-semibold text-hold hover:underline">
+                  {s.hold} on hold
+                </Link>
+              ) : null}
             </li>
           );
         })}

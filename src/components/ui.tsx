@@ -40,6 +40,9 @@ export function ContainerNumber({ number }: { number: string }) {
   );
 }
 
+/** Shipments status-filter value (and `?milestone=` URL value) for POs with no shipment booked yet. */
+export const AWAITING_BOOKING = "awaiting";
+
 /** The stops a container passes on its way to ELM, in order. */
 const TRACK_STOPS = ["Booked", "Loaded", "Departed", "Arrived", "Discharged", "Available", "Out-gated", "Delivered"];
 

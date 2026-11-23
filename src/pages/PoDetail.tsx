@@ -104,15 +104,15 @@ export default function PoDetail() {
         {saveError && <p className="text-sm text-red-700 sm:col-span-2 lg:col-span-4">{saveError}</p>}
       </section>
 
-      <section className="card p-4">
-        <h2 className="mb-2 text-lg font-semibold text-ink">Shipments</h2>
+      <section>
+        <h2 className="section-title">Shipments</h2>
         {po.shipments.length === 0 ? (
           <p className="text-sm text-slate-500">
             Not booked yet.{" "}
             {po.status === "open" && <Link to={`/shipments/new?po=${po.id}`} className="text-route hover:underline">+ Book shipment</Link>}
           </p>
         ) : (
-          <ul className="divide-y divide-slate-100">
+          <ul className="card divide-y divide-slate-100 px-4">
             {po.shipments.map((s) => (
               <li key={s.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-2 text-sm">
                 <Link to={`/shipments/${s.id}`} className="font-mono text-route-dark hover:underline">{s.mbl ?? s.reference ?? `#${s.id}`}</Link>
@@ -133,29 +133,31 @@ export default function PoDetail() {
         )}
       </section>
 
-      <section className="card p-4">
-        <div className="mb-3 flex flex-wrap items-center gap-3">
-          <h2 className="text-lg font-semibold text-ink">PO History</h2>
+      <section>
+        <div className="mb-2 flex flex-wrap items-baseline gap-3">
+          <h2 className="section-title mb-0">PO History</h2>
           <label className="flex items-center gap-1.5 text-xs text-slate-600">
             <input type="checkbox" checked={showTracking} onChange={(e) => setShowTracking(e.target.checked)} />
             Show carrier tracking
           </label>
           {!showTracking && hiddenCount > 0 && <span className="text-xs text-slate-500">{hiddenCount} tracking entries hidden</span>}
         </div>
-        <form
-          className="mb-4 flex gap-2"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            if (!note.trim()) return;
-            await api.post("/notes", { po_id: po.id, body: note });
-            setNote("");
-            reload();
-          }}
-        >
-          <input className="input" placeholder={`Add a note to PO ${po.po_number}…`} value={note} onChange={(e) => setNote(e.target.value)} />
-          <button className="btn">Add</button>
-        </form>
-        <HistoryTimeline entries={history} />
+        <div className="card p-4">
+          <form
+            className="mb-4 flex gap-2"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!note.trim()) return;
+              await api.post("/notes", { po_id: po.id, body: note });
+              setNote("");
+              reload();
+            }}
+          >
+            <input className="input" placeholder={`Add a note to PO ${po.po_number}…`} value={note} onChange={(e) => setNote(e.target.value)} />
+            <button className="btn">Add</button>
+          </form>
+          <HistoryTimeline entries={history} />
+        </div>
       </section>
     </div>
   );

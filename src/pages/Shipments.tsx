@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type PurchaseOrder, type Shipment } from "../api";
-import { EditableDate, ErrorBox, EtaWithSlip, fmtDate, Holds, PoLinks, TrackingStatus, useApi, VoyageTrack } from "../components/ui";
+import { AWAITING_BOOKING, EditableDate, ErrorBox, EtaWithSlip, fmtDate, Holds, PoLinks, TrackingStatus, useApi, VoyageTrack } from "../components/ui";
 import NewPoForm, { PaymentSelect } from "../components/NewPoForm";
 import { MILESTONES, MILESTONE_ORDER } from "../../shared/milestones";
 import { ShipLink, type Row } from "./Dashboard";
@@ -11,9 +11,6 @@ type Sort = { key: SortKey; dir: "asc" | "desc" } | null;
 
 /** A table line: a shipment/container, or a PO that has no shipment booked yet. */
 type Line = { kind: "ship"; r: Row } | { kind: "po"; p: PurchaseOrder };
-
-/** Status-filter value for POs with no shipment booked yet. */
-const AWAITING = "__awaiting_booking";
 
 /** Earliest order date across the shipment's POs (when the PO was entered). */
 const enteredDate = (r: Row) =>
@@ -77,7 +74,9 @@ export default function Shipments() {
   const status = params.get("status") ?? "active";
   const q = params.get("q") ?? "";
   const [text, setText] = useState(q);
-  const [milestone, setMilestone] = useState("");
+  const milestone = params.get("milestone") ?? "";
+  const setMilestone = (m: string) =>
+    setParams((p) => (m ? p.set("milestone", m) : p.delete("milestone"), p), { replace: true });
   const [sort, setSort] = useState<Sort>(null);
   const [showNewPo, setShowNewPo] = useState(false);
   useEffect(() => {
@@ -115,7 +114,7 @@ export default function Shipments() {
           )
           .map((p) => ({ kind: "po", p }));
   const filtered =
-    milestone === AWAITING
+    milestone === AWAITING_BOOKING
       ? poRows
       : milestone
         ? rows.filter((l) => l.kind === "ship" && l.r.c?.milestone === milestone)
@@ -150,7 +149,7 @@ export default function Shipments() {
           onChange={(e) => setMilestone(e.target.value)}
         >
           <option value="">All statuses</option>
-          {status !== "received" && <option value={AWAITING}>Awaiting booking</option>}
+          {status !== "received" && <option value={AWAITING_BOOKING}>Awaiting booking</option>}
           {MILESTONES.filter((m) => m.key !== "po_placed" && m.key !== "cargo_ready").map((m) => (
             <option key={m.key} value={m.key}>{m.label}</option>
           ))}
