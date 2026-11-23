@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { api, type Container, type Dashboard as D, type Shipment } from "../api";
-import { daysFrom, EditableDate, ErrorBox, fmtDate, Holds, MilestoneBadge, PaymentBadge, PoLinks, useApi } from "../components/ui";
+import { daysFrom, EditableDate, ErrorBox, EtaWithSlip, fmtDate, Holds, PaymentBadge, PoLinks, useApi, VoyageTrack } from "../components/ui";
 import { MILESTONES } from "../../shared/milestones";
 
 export interface Row {
@@ -18,6 +18,10 @@ export function flatten(shipments: Shipment[]): Row[] {
 
 function eta(r: Row) {
   return r.c?.eta ?? r.s.eta;
+}
+
+function firstEta(r: Row) {
+  return r.c?.original_eta ?? r.s.original_eta;
 }
 
 function riskReasons(r: Row, today: string): string[] {
@@ -80,9 +84,9 @@ export default function Dashboard() {
                   <td><ShipLink r={r} /></td>
                   <td><PoLinks pos={r.s.pos} /></td>
                   <td>{r.s.vendor}</td>
-                  <td>{r.c && <MilestoneBadge milestone={r.c.milestone} />} <Holds holds={r.c?.holds ?? null} /></td>
+                  <td className="whitespace-nowrap">{r.c && <VoyageTrack milestone={r.c.milestone} />} <Holds holds={r.c?.holds ?? null} /></td>
                   <td className="font-medium text-red-700">{why.join(" · ")}</td>
-                  <td>{fmtDate(eta(r))}</td>
+                  <td><EtaWithSlip eta={eta(r)} first={firstEta(r)} /></td>
                 </tr>
               ))}
             </tbody>
@@ -104,12 +108,12 @@ export default function Dashboard() {
             )}
             {arriving.map((r) => (
               <tr key={`${r.s.id}-${r.c?.id}`}>
-                <td className="whitespace-nowrap font-medium">{fmtDate(eta(r))}</td>
+                <td className="font-medium"><EtaWithSlip eta={eta(r)} first={firstEta(r)} /></td>
                 <td><ShipLink r={r} /></td>
                 <td><PoLinks pos={r.s.pos} /></td>
                 <td>{r.s.vendor}</td>
                 <td>{r.s.carrier_name ?? r.s.mode}</td>
-                <td>{r.c ? <MilestoneBadge milestone={r.c.milestone} /> : r.s.mode}</td>
+                <td>{r.c ? <VoyageTrack milestone={r.c.milestone} /> : <span className="capitalize">{r.s.mode}</span>}</td>
                 <td className="whitespace-nowrap">
                   {r.c ? (
                     <EditableDate

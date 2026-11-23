@@ -2,6 +2,10 @@
 
 @theme {
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Port-yard palette: container blue for progress, hazard yellow for slips, hold red for holds. */
+  --color-route: #2457a6;
+  --color-hazard: #f2c200;
+  --color-hold: #c3102e;
 }
 
 body {

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, type Container, type ShipmentDetail as SD } from "../api";
-import { EditableDate, ErrorBox, fmtDate, Holds, MilestoneBadge, PoLinks, TrackingStatus, useApi } from "../components/ui";
+import { EditableDate, ErrorBox, EtaWithSlip, fmtDate, Holds, PoLinks, TrackingStatus, useApi, VoyageTrack } from "../components/ui";
 import { PaymentSelect } from "../components/NewPoForm";
 import { CARRIERS } from "../../shared/carriers";
 import { MILESTONES } from "../../shared/milestones";
@@ -153,8 +153,8 @@ function ContainerRow({ c, onChange }: { c: Container; onChange: () => void }) {
         {!c.number_valid && <span className="ml-1 text-xs text-amber-600" title="ISO 6346 check digit failed">⚠ check</span>}
         {c.size && <div className="text-xs text-slate-500">{c.size}</div>}
       </td>
-      <td><MilestoneBadge milestone={c.milestone} /> <Holds holds={c.holds} /></td>
-      <td className="whitespace-nowrap">{fmtDate(c.eta)}</td>
+      <td className="whitespace-nowrap"><VoyageTrack milestone={c.milestone} /> <Holds holds={c.holds} /></td>
+      <td><EtaWithSlip eta={c.eta} first={c.original_eta} /></td>
       <td className="whitespace-nowrap">{fmtDate(c.discharged_at)}</td>
       <td className="text-xs">{c.terminal ?? "—"}</td>
       <td>

@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type PurchaseOrder, type Shipment } from "../api";
-import { EditableDate, ErrorBox, fmtDate, Holds, MilestoneBadge, PoLinks, TrackingStatus, useApi } from "../components/ui";
+import { EditableDate, ErrorBox, EtaWithSlip, fmtDate, Holds, PoLinks, TrackingStatus, useApi, VoyageTrack } from "../components/ui";
 import NewPoForm, { PaymentSelect } from "../components/NewPoForm";
 import { MILESTONES, MILESTONE_ORDER } from "../../shared/milestones";
 import { ShipLink, type Row } from "./Dashboard";
 
-type SortKey = "entered" | "eta_first" | "eta" | "status";
+type SortKey = "entered" | "eta" | "status";
 type Sort = { key: SortKey; dir: "asc" | "desc" } | null;
 
 /** A table line: a shipment/container, or a PO that has no shipment booked yet. */
@@ -19,12 +19,11 @@ const AWAITING = "__awaiting_booking";
 const enteredDate = (r: Row) =>
   r.s.pos.map((p) => p.order_date).filter((d): d is string => !!d).sort()[0] ?? null;
 
-/** First ETA ever recorded for the container (or shipment); never changes once set. */
+/** First ETA ever recorded for the container (or shipment); never changes once set. Shown as the slip beside the current ETA. */
 const firstEta = (r: Row) => r.c?.original_eta ?? r.s.original_eta;
 
 const SORT_VALUE: Record<SortKey, (r: Row) => string | number | null> = {
   entered: enteredDate,
-  eta_first: (r) => firstEta(r),
   eta: (r) => r.c?.eta ?? r.s.eta,
   // Shipping order (Booked → Loaded → … → Received); rows without a container go last.
   status: (r) => (r.c ? MILESTONE_ORDER[r.c.milestone] ?? null : null),
@@ -33,7 +32,6 @@ const SORT_VALUE: Record<SortKey, (r: Row) => string | number | null> = {
 // Unbooked POs have no ETA yet (blank → bottom); by status they sort ahead of "Booked".
 const PO_SORT_VALUE: Record<SortKey, (p: PurchaseOrder) => string | number | null> = {
   entered: (p) => p.order_date,
-  eta_first: () => null,
   eta: () => null,
   status: () => -1,
 };
@@ -178,8 +176,7 @@ export default function Shipments() {
               <SortHeader label="Date entered" k="entered" sort={sort} setSort={setSort} />
               <th>Vendor</th><th>Carrier</th><th>BL / booking</th>
               <SortHeader label="Status" k="status" sort={sort} setSort={setSort} />
-              <SortHeader label="ETA (first published)" k="eta_first" sort={sort} setSort={setSort} />
-              <SortHeader label="ETA (current)" k="eta" sort={sort} setSort={setSort} />
+              <SortHeader label="ETA" k="eta" sort={sort} setSort={setSort} />
               <th>ELM delivery</th><th>Notes</th><th>Tracking</th>
             </tr>
           </thead>
@@ -196,11 +193,10 @@ export default function Shipments() {
                 <td className="whitespace-nowrap">{r.s.carrier_name ?? <span className="capitalize text-slate-500">{r.s.mode}</span>}</td>
                 <td className="font-mono text-xs">{r.s.mbl}</td>
                 <td className="whitespace-nowrap">
-                  {r.c ? <MilestoneBadge milestone={r.c.milestone} /> : <span className="text-xs text-slate-500">{r.s.status}</span>}{" "}
+                  {r.c ? <VoyageTrack milestone={r.c.milestone} /> : <span className="text-xs text-slate-500">{r.s.status}</span>}{" "}
                   <Holds holds={r.c?.holds ?? null} />
                 </td>
-                <td className="whitespace-nowrap">{fmtDate(firstEta(r))}</td>
-                <td className="whitespace-nowrap">{fmtDate(r.c?.eta ?? r.s.eta)}</td>
+                <td><EtaWithSlip eta={r.c?.eta ?? r.s.eta} first={firstEta(r)} /></td>
                 <td className="whitespace-nowrap">
                   {r.c ? (
                     <EditableDate
@@ -259,7 +255,7 @@ function PoLine({ p, onChange }: { p: PurchaseOrder; onChange: () => void }) {
           <PaymentSelect po={p} onSave={patch} />
         </div>
       </td>
-      <td className="whitespace-nowrap" colSpan={2}>
+      <td className="whitespace-nowrap">
         <span className="mr-1 text-xs text-slate-500">Cargo ready</span>
         <EditableDate value={p.crd} onSave={(v) => patch({ crd: v })} />
       </td>

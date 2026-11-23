@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, type PoDetail as PD } from "../api";
-import { EditableDate, ErrorBox, fmtDate, MilestoneBadge, useApi } from "../components/ui";
+import { EditableDate, ErrorBox, fmtDate, useApi, VoyageTrack } from "../components/ui";
 import { PaymentSelect } from "../components/NewPoForm";
 import { HistoryTimeline, TRACKING_KINDS } from "../components/History";
 
@@ -123,7 +123,7 @@ export default function PoDetail() {
                   {s.containers.map((c) => (
                     <span key={c.number} className="flex items-center gap-1 text-xs">
                       <span className="font-mono text-slate-600">{c.number}</span>
-                      <MilestoneBadge milestone={c.milestone} />
+                      <VoyageTrack milestone={c.milestone} />
                     </span>
                   ))}
                 </span>

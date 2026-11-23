@@ -24,30 +24,78 @@ export function useApi<T>(path: string | null) {
   return { data, error, loading, reload };
 }
 
-const MILESTONE_STYLES: Record<string, string> = {
-  po_placed: "bg-slate-100 text-slate-700",
-  cargo_ready: "bg-slate-100 text-slate-700",
-  booked: "bg-sky-50 text-sky-700",
-  loaded: "bg-sky-100 text-sky-800",
-  departed: "bg-blue-100 text-blue-800",
-  transshipment: "bg-indigo-100 text-indigo-800",
-  arrived: "bg-violet-100 text-violet-800",
-  discharged: "bg-amber-100 text-amber-800",
-  on_hold: "bg-red-100 text-red-800",
-  available: "bg-emerald-100 text-emerald-800",
-  outgated: "bg-teal-100 text-teal-800",
-  delivered: "bg-teal-200 text-teal-900",
-  received: "bg-slate-200 text-slate-600",
+/** The stops a container passes on its way to ELM, in order. */
+const TRACK_STOPS = ["Booked", "Loaded", "Departed", "Arrived", "Discharged", "Available", "Out-gated", "Delivered"];
+
+/** Where each milestone sits on the track. Transshipment is still at sea; a hold sits at discharge. */
+const TRACK_POSITION: Record<string, number> = {
+  booked: 0,
+  loaded: 1,
+  departed: 2,
+  transshipment: 2,
+  arrived: 3,
+  discharged: 4,
+  on_hold: 4,
+  available: 5,
+  outgated: 6,
+  delivered: 7,
+  received: 7,
 };
 
-export function MilestoneBadge({ milestone }: { milestone: string }) {
+/**
+ * A container's progress as a row of stops: filled up to where it is now, a ring on the
+ * current stop (red if on hold), and the milestone name beside it.
+ */
+export function VoyageTrack({ milestone }: { milestone: string }) {
+  const pos = TRACK_POSITION[milestone] ?? -1;
+  const hold = milestone === "on_hold";
+  const done = milestone === "received";
+  const label = milestoneLabel(milestone);
   return (
     <span
-      className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${
-        MILESTONE_STYLES[milestone] ?? "bg-slate-100 text-slate-700"
-      }`}
+      className="inline-flex items-center gap-2 whitespace-nowrap"
+      role="img"
+      aria-label={pos >= 0 ? `${label}, stage ${pos + 1} of ${TRACK_STOPS.length}` : label}
+      title={TRACK_STOPS.map((s, i) => (i === pos ? `▸ ${s}` : s)).join("\n")}
     >
-      {milestoneLabel(milestone)}
+      <span className="flex items-center" aria-hidden>
+        {TRACK_STOPS.map((s, i) => (
+          <Fragment key={s}>
+            {i > 0 && <span className={`w-2.5 ${i <= pos ? "h-0.5 bg-route" : "h-px bg-slate-300"}`} />}
+            {i < pos || (done && i === pos) ? (
+              <span className="size-2 rounded-full bg-route" />
+            ) : i === pos ? (
+              <span className={`size-2.5 rounded-full border-2 bg-white ${hold ? "border-hold" : "border-route"}`} />
+            ) : (
+              <span className="size-1.5 rounded-full bg-slate-300" />
+            )}
+          </Fragment>
+        ))}
+      </span>
+      <span className={`text-xs font-medium ${hold ? "text-hold" : done ? "text-slate-500" : "text-slate-800"}`}>{label}</span>
+    </span>
+  );
+}
+
+/**
+ * Current ETA with how far it has moved from the first published ETA.
+ * Late by more than a day (the same rule as the email alerts) is flagged in hazard yellow.
+ */
+export function EtaWithSlip({ eta, first }: { eta: string | null | undefined; first: string | null | undefined }) {
+  const slip = eta && first ? daysFrom(first.slice(0, 10), eta) : null;
+  return (
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+      {fmtDate(eta)}
+      {slip ? (
+        <span
+          title={`First published ETA: ${fmtDate(first)}`}
+          className={`rounded-sm px-1 text-[11px] font-semibold tabular-nums ${
+            slip > 1 ? "bg-hazard text-slate-900" : "text-slate-600"
+          }`}
+        >
+          {slip > 0 ? `+${slip}d` : `−${-slip}d`}
+        </span>
+      ) : null}
     </span>
   );
 }
