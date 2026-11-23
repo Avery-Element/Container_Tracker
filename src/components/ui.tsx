@@ -24,6 +24,22 @@ export function useApi<T>(path: string | null) {
   return { data, error, loading, reload };
 }
 
+/**
+ * A container number as it is painted on the door: owner code, serial, and the
+ * check digit in a box. Anything that isn't an ISO 6346 number is shown as typed.
+ */
+export function ContainerNumber({ number }: { number: string }) {
+  const m = /^([A-Z]{4})(\d{6})(\d)$/.exec(number);
+  if (!m) return <span className="font-mono">{number}</span>;
+  return (
+    <span className="whitespace-nowrap font-mono">
+      {m[1]}
+      <span className="ml-1">{m[2]}</span>
+      <span className="ml-1 inline-block border border-current px-[2px] leading-tight">{m[3]}</span>
+    </span>
+  );
+}
+
 /** The stops a container passes on its way to ELM, in order. */
 const TRACK_STOPS = ["Booked", "Loaded", "Departed", "Arrived", "Discharged", "Available", "Out-gated", "Delivered"];
 
@@ -107,7 +123,7 @@ export function PoLinks({ pos, sep = ", " }: { pos: { id: number; po_number: str
       {pos.map((p, i) => (
         <Fragment key={p.id}>
           {i > 0 && sep}
-          <Link to={`/pos/${p.id}`} className="text-teal-800 hover:underline">{p.po_number}</Link>
+          <Link to={`/pos/${p.id}`} className="text-route-dark hover:underline">{p.po_number}</Link>
         </Fragment>
       ))}
     </>
@@ -152,7 +168,7 @@ export function Holds({ holds }: { holds: string | null }) {
   return (
     <>
       {list.map((h) => (
-        <span key={h.name} className="mr-1 rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-white">
+        <span key={h.name} className="mr-1 rounded-sm bg-hold px-1.5 py-0.5 text-[11px] font-semibold text-white">
           {h.name} hold
         </span>
       ))}
@@ -238,7 +254,7 @@ export function EditableDate({
       type="button"
       onClick={() => setEditing(true)}
       title="Click to edit"
-      className={`min-h-6 rounded px-1 text-left hover:bg-teal-50 focus-visible:outline-2 focus-visible:outline-teal-600 ${current ? "" : "text-xs text-teal-700"}`}
+      className={`min-h-6 rounded px-1 text-left hover:bg-route-50 focus-visible:outline-2 focus-visible:outline-route ${current ? "" : "text-xs text-route"}`}
     >
       {current ? fmtDate(current, withTime) : placeholder}
     </button>

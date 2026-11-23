@@ -54,11 +54,11 @@ function SortHeader({ label, k, sort, setSort }: { label: string; k: SortKey; so
     <th aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : undefined}>
       <button
         type="button"
-        className="-mx-1 inline-flex min-h-6 items-center gap-1 rounded px-1 uppercase hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-teal-600"
+        className="-mx-1 inline-flex min-h-6 items-center gap-1 rounded px-1 hover:text-ink focus-visible:outline-2 focus-visible:outline-route"
         onClick={() => setSort({ key: k, dir: active && sort.dir === "asc" ? "desc" : "asc" })}
       >
         {label}
-        <span aria-hidden className={active ? "text-teal-700" : "text-slate-400"}>
+        <span aria-hidden className={active ? "text-route" : "text-slate-500"}>
           {active ? (sort.dir === "asc" ? "▲" : "▼") : "↕"}
         </span>
       </button>
@@ -130,7 +130,7 @@ export default function Shipments() {
             <button
               key={t.key}
               onClick={() => setParams((p) => (p.set("status", t.key), p))}
-              className={`rounded px-3 py-1 text-sm ${status === t.key ? "bg-teal-700 text-white" : "text-slate-600"}`}
+              className={`rounded px-3 py-1 text-sm ${status === t.key ? "bg-route text-white" : "text-slate-600"}`}
             >
               {t.label}
             </button>
@@ -228,7 +228,7 @@ function PoLine({ p, onChange }: { p: PurchaseOrder; onChange: () => void }) {
     <tr className="[&>td]:bg-amber-50/50">
       <td className="whitespace-nowrap">
         {p.status === "open" ? (
-          <Link to={`/shipments/new?po=${p.id}`} className="text-sm font-medium text-teal-700 hover:underline">
+          <Link to={`/shipments/new?po=${p.id}`} className="text-sm font-medium text-route hover:underline">
             + Book shipment
           </Link>
         ) : (
@@ -318,7 +318,7 @@ function NoteCell({ s, onAdded }: { s: Shipment; onAdded: () => void }) {
       <button
         type="button"
         onClick={() => setAdding(true)}
-        className="text-teal-700 hover:underline"
+        className="text-route hover:underline"
       >
         + Add note
       </button>

@@ -37,15 +37,15 @@ export default function NewShipment() {
         }
       }}
     >
-      <h1 className="text-lg font-semibold">New shipment</h1>
+      <h1 className="text-3xl font-semibold">New shipment</h1>
       <div>
         <span className="label">Purchase orders on this shipment</span>
         <div className="flex flex-wrap gap-2">
           {poIds.map((id) => {
             const p = pos?.find((x) => x.id === id);
             return (
-              <span key={id} className="rounded-full bg-teal-50 px-2 py-0.5 text-sm text-teal-800">
-                {p?.po_number ?? id} {p?.vendor && `· ${p.vendor}`}{" "}
+              <span key={id} className="rounded-full bg-route-50 px-2 py-0.5 text-sm text-route-dark">
+                {p?.po_number ?? id} {p?.vendor && <span className="ml-1 text-slate-500">{p.vendor}</span>}{" "}
                 <button type="button" onClick={() => setPoIds(poIds.filter((x) => x !== id))}>×</button>
               </span>
             );
@@ -53,7 +53,7 @@ export default function NewShipment() {
           <select className="input max-w-64" value="" onChange={(e) => e.target.value && setPoIds([...poIds, Number(e.target.value)])}>
             <option value="">Add PO…</option>
             {pos?.filter((p) => !poIds.includes(p.id)).map((p) => (
-              <option key={p.id} value={p.id}>{p.po_number} · {p.vendor}</option>
+              <option key={p.id} value={p.id}>{p.po_number} ({p.vendor})</option>
             ))}
           </select>
         </div>

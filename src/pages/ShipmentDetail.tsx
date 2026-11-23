@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, type Container, type ShipmentDetail as SD } from "../api";
-import { EditableDate, ErrorBox, EtaWithSlip, fmtDate, Holds, PoLinks, TrackingStatus, useApi, VoyageTrack } from "../components/ui";
+import { ContainerNumber, daysFrom, ErrorBox, EtaWithSlip, fmtDate, Holds, PoLinks, TrackingStatus, useApi, VoyageTrack } from "../components/ui";
 import { PaymentSelect } from "../components/NewPoForm";
 import { CARRIERS } from "../../shared/carriers";
 import { MILESTONES } from "../../shared/milestones";
@@ -34,10 +34,12 @@ export default function ShipmentDetail() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-start gap-4">
         <div>
-          <h1 className="text-xl font-semibold">{title}</h1>
-          <p className="text-sm text-slate-500">
-            {s.vendor ?? "—"} · {s.carrier_name ?? s.mode} {s.mbl && <span className="font-mono">· {s.mbl}</span>}
-            {s.forwarder && ` · FF ${s.forwarder}`}
+          <h1 className="text-3xl font-semibold">{title}</h1>
+          <p className="flex flex-wrap gap-x-4 text-sm text-steel">
+            <span>{s.vendor ?? "No vendor"}</span>
+            <span className="capitalize">{s.carrier_name ?? s.mode}</span>
+            {s.mbl && <span>BL <span className="font-mono">{s.mbl}</span></span>}
+            {s.forwarder && <span>Forwarder {s.forwarder}</span>}
           </p>
           <div className="mt-1 flex flex-wrap gap-3">
             {s.pos.map((p) => (
@@ -72,46 +74,41 @@ export default function ShipmentDetail() {
       {s.tracking_error && <ErrorBox error={`Tracking: ${s.tracking_error}`} />}
       {editing && <EditShipment s={s} onSaved={() => (setEditing(false), reload())} />}
 
-      <div className="grid gap-3 md:grid-cols-4">
-        <Fact label="Route" value={s.pol || s.pod ? `${s.pol ?? "?"} → ${s.pod ?? "?"}` : "—"} />
-        <Fact label="Vessel" value={s.vessel ? `${s.vessel} ${s.voyage ?? ""}` : "—"} />
-        <Fact label="Departed" value={s.atd ? fmtDate(s.atd) : s.etd ? `ETD ${fmtDate(s.etd)}` : "—"} />
-        <Fact
-          label="Port arrival"
-          value={s.ata ? `Arrived ${fmtDate(s.ata)}` : s.eta ? `ETA ${fmtDate(s.eta)}` : "—"}
-          sub={s.original_eta && s.original_eta.slice(0, 10) !== s.eta?.slice(0, 10) ? `originally ${fmtDate(s.original_eta)}` : undefined}
-        />
-      </div>
+      <Route s={s} />
 
-      <section className="card overflow-x-auto">
-        <h2 className="px-4 pt-4 text-sm font-semibold text-slate-700">Containers</h2>
-        <table className="data mt-2">
-          <thead>
-            <tr>
-              <th>Container</th><th>Status</th><th>ETA</th><th>Discharged</th><th>Terminal</th><th>ELM delivery appt</th><th>Update</th>
-            </tr>
-          </thead>
-          <tbody>
-            {s.containers.map((c) => (
-              <ContainerRow key={c.id} c={c} onChange={reload} />
-            ))}
-          </tbody>
-        </table>
-        {s.mode === "ocean" && <AddContainer shipmentId={s.id} onAdded={reload} />}
+      <section>
+        <h2 className="section-title">Containers</h2>
+        <div className="card overflow-x-auto">
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Container</th><th>Status</th><th>ETA</th><th>Discharged</th><th>Terminal</th><th>ELM delivery appt</th><th>Update</th>
+              </tr>
+            </thead>
+            <tbody>
+              {s.containers.map((c) => (
+                <ContainerRow key={c.id} c={c} onChange={reload} />
+              ))}
+            </tbody>
+          </table>
+          {s.mode === "ocean" && <AddContainer shipmentId={s.id} onAdded={reload} />}
+        </div>
       </section>
 
       <div className="grid gap-5 lg:grid-cols-2">
         <Notes s={s} onAdded={reload} />
-        <section className="card p-4">
-          <h2 className="mb-2 text-sm font-semibold text-slate-700">Tracking events</h2>
+        <section>
+          <h2 className="section-title">Tracking events</h2>
           {s.events.length === 0 && <p className="text-sm text-slate-500">No events yet.</p>}
-          <ol className="relative ml-2 border-l border-slate-200 text-sm">
+          <ol className="relative ml-2 border-l border-line text-sm">
             {s.events.map((e) => (
               <li key={e.id} className="mb-3 ml-4">
-                <span className="absolute -left-1.5 mt-1.5 h-3 w-3 rounded-full border border-white bg-teal-600" />
+                <span className="absolute -left-1.5 mt-1.5 h-3 w-3 rounded-full border border-white bg-route" />
                 <div className="font-medium">{prettyEvent(e.event)} {e.number && <span className="font-mono text-xs text-slate-500">{e.number}</span>}</div>
-                <div className="text-xs text-slate-500">
-                  {fmtDate(e.occurred_at ?? e.created_at, true)} {e.location && `· ${e.location}`} · {e.source}
+                <div className="flex flex-wrap gap-x-3 text-xs text-steel">
+                  <span>{fmtDate(e.occurred_at ?? e.created_at, true)}</span>
+                  {e.location && <span>{e.location}</span>}
+                  <span>{e.source}</span>
                 </div>
               </li>
             ))}
@@ -130,12 +127,36 @@ function prettyEvent(e: string) {
     .replace(/^\w/, (c) => c.toUpperCase());
 }
 
-function Fact({ label, value, sub }: { label: string; value: string; sub?: string }) {
+/** Origin and destination ports joined by the voyage, with departure and arrival under each end. */
+function Route({ s }: { s: SD }) {
+  const slip = s.original_eta && s.eta ? daysFrom(s.original_eta.slice(0, 10), s.eta) : null;
+  const departed = s.atd ? `Departed ${fmtDate(s.atd)}` : s.etd ? `Departs ${fmtDate(s.etd)}` : "Not departed yet";
+  const arrival = s.ata ? `Arrived ${fmtDate(s.ata)}` : s.eta ? `ETA ${fmtDate(s.eta)}` : "No ETA yet";
   return (
-    <div className="card p-3">
-      <div className="label">{label}</div>
-      <div className="text-sm font-medium">{value}</div>
-      {sub && <div className="text-xs text-amber-700">{sub}</div>}
+    <div className="grid grid-cols-[auto_1fr_auto] items-center gap-x-4 gap-y-1">
+      <div className="font-display text-2xl font-semibold">{s.pol ?? "Origin unknown"}</div>
+      <div className="relative flex min-w-12 items-center justify-center">
+        <span className={`absolute inset-x-0 border-t-2 ${s.atd ? "border-route" : "border-dashed border-slate-300"}`} />
+        {s.vessel && (
+          <span className="relative hidden bg-concrete px-3 text-sm text-steel sm:inline">
+            {s.vessel} {s.voyage}
+          </span>
+        )}
+      </div>
+      <div className="text-right font-display text-2xl font-semibold">{s.pod ?? "Destination unknown"}</div>
+      <div className="text-sm text-steel">{departed}</div>
+      <div />
+      <div className="text-right text-sm text-steel">
+        {arrival}
+        {slip && slip > 1 ? (
+          <span
+            title={`First published ETA: ${fmtDate(s.original_eta)}`}
+            className="ml-2 rounded-sm bg-hazard px-1 text-[11px] font-semibold tabular-nums text-ink"
+          >
+            +{slip}d
+          </span>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -148,8 +169,8 @@ function ContainerRow({ c, onChange }: { c: Container; onChange: () => void }) {
   };
   return (
     <tr>
-      <td className="whitespace-nowrap font-mono">
-        {c.number}
+      <td className="whitespace-nowrap">
+        <ContainerNumber number={c.number} />
         {!c.number_valid && <span className="ml-1 text-xs text-amber-600" title="ISO 6346 check digit failed">⚠ check</span>}
         {c.size && <div className="text-xs text-slate-500">{c.size}</div>}
       </td>
@@ -298,8 +319,8 @@ function EditShipment({ s, onSaved }: { s: SD; onSaved: () => void }) {
 function Notes({ s, onAdded }: { s: SD; onAdded: () => void }) {
   const [body, setBody] = useState("");
   return (
-    <section className="card p-4">
-      <h2 className="mb-2 text-sm font-semibold text-slate-700">Notes</h2>
+    <section>
+      <h2 className="section-title">Notes</h2>
       <form
         className="mb-3 flex gap-2"
         onSubmit={async (e) => {
@@ -314,9 +335,9 @@ function Notes({ s, onAdded }: { s: SD; onAdded: () => void }) {
       </form>
       <ul className="space-y-2 text-sm">
         {s.notes.map((n) => (
-          <li key={n.id} className="rounded-md bg-slate-50 px-3 py-2">
+          <li key={n.id} className="card px-3 py-2">
             <div className="whitespace-pre-wrap">{n.body}</div>
-            <div className="mt-1 text-xs text-slate-400">{n.author} · {fmtDate(n.created_at)}</div>
+            <div className="mt-1 flex gap-3 text-xs text-steel"><span>{n.author}</span><span>{fmtDate(n.created_at)}</span></div>
           </li>
         ))}
       </ul>

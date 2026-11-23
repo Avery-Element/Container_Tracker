@@ -98,7 +98,7 @@ function Snapshot({ json }: { json: string | null }) {
     <span className="text-slate-500">
       {Object.entries(values)
         .map(([k, v]) => `${FIELD_LABELS[k] ?? k}: ${fmtValue(k, "created", v)}`)
-        .join(" · ")}
+        .join("; ")}
     </span>
   );
 }
@@ -114,7 +114,7 @@ export function describe(e: HistoryEntry): ReactNode {
     case "field_changed":
       return <>{field}: <Change e={e} /></>;
     case "linked":
-      return <>Linked to shipment{e.body && <span className="text-slate-500"> · {e.body}</span>}</>;
+      return <>Linked to shipment{e.body && <span className="ml-2 text-slate-500">{e.body}</span>}</>;
     case "unlinked":
       return <>Unlinked from shipment{e.body && <span className="text-slate-500"> ({e.body.toLowerCase()})</span>}</>;
     case "note":
@@ -128,7 +128,7 @@ export function describe(e: HistoryEntry): ReactNode {
     case "container_changed":
       return <>{field}: <Change e={e} /></>;
     case "shipment_status":
-      return <>Shipment status: <Change e={e} />{e.body && <span className="text-slate-500"> · {e.body}</span>}</>;
+      return <>Shipment status: <Change e={e} />{e.body && <span className="ml-2 text-slate-500">{e.body}</span>}</>;
     case "tracking_started":
       return <>Live tracking started</>;
     case "tracking_failed":
@@ -148,7 +148,7 @@ export function Subject({ e }: { e: HistoryEntry }) {
     <>
       {e.shipment_label &&
         (e.shipment_exists && e.shipment_id ? (
-          <Link to={`/shipments/${e.shipment_id}`} className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-teal-800 hover:underline">
+          <Link to={`/shipments/${e.shipment_id}`} className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-route-dark hover:underline">
             {e.shipment_label}
           </Link>
         ) : (
@@ -182,16 +182,16 @@ export function HistoryTimeline({ entries }: { entries: HistoryEntry[] }) {
     <div className="space-y-5">
       {[...days].map(([day, list]) => (
         <section key={day}>
-          <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">{day}</h3>
+          <h3 className="mb-1.5 text-base font-semibold text-ink">{day}</h3>
           <ol className="space-y-1.5 border-l border-slate-200 pl-4">
             {list.map((e) => {
               const tracking = TRACKING_KINDS.has(e.kind);
               return (
                 <li key={e.id} className={`relative text-sm ${tracking ? "text-slate-600" : ""}`}>
-                  <span className={`absolute -left-[21px] top-1.5 h-2 w-2 rounded-full ${tracking ? "bg-slate-300" : "bg-teal-600"}`} />
+                  <span className={`absolute -left-[21px] top-1.5 h-2 w-2 rounded-full ${tracking ? "bg-slate-300" : "bg-route"}`} />
                   <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                     {isDateOnly(e.recorded_at) ? (
-                      <span className="w-16 shrink-0 text-xs text-slate-400" title="Only the date was recorded">—</span>
+                      <span className="w-16 shrink-0 text-xs text-slate-500" title="Only the date was recorded">—</span>
                     ) : (
                       <time className="w-16 shrink-0 text-xs tabular-nums text-slate-500" dateTime={e.recorded_at} title={fmtTimestamp(e.recorded_at)}>
                         {new Date(normalizeUtc(e.recorded_at)).toLocaleTimeString(undefined, { timeStyle: "short" })}
@@ -207,7 +207,7 @@ export function HistoryTimeline({ entries }: { entries: HistoryEntry[] }) {
                   </div>
                   <div className="pl-[4.5rem] text-xs text-slate-500">
                     <Actor actor={e.actor} />
-                    {e.occurred_at && <> · occurred {fmtDate(e.occurred_at, e.occurred_at.length > 10)}</>}
+                    {e.occurred_at && <span className="ml-3">occurred {fmtDate(e.occurred_at, e.occurred_at.length > 10)}</span>}
                   </div>
                 </li>
               );

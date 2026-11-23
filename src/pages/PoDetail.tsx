@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, type PoDetail as PD } from "../api";
-import { EditableDate, ErrorBox, fmtDate, useApi, VoyageTrack } from "../components/ui";
+import { EditableDate, ErrorBox, fmtDate, useApi, VoyageTrack, ContainerNumber } from "../components/ui";
 import { PaymentSelect } from "../components/NewPoForm";
 import { HistoryTimeline, TRACKING_KINDS } from "../components/History";
 
@@ -31,7 +31,7 @@ function EditableText({ value, onSave, placeholder = "+ set", list }: { value: s
       />
     );
   return (
-    <button type="button" onClick={() => setEditing(true)} title="Click to edit" className={`min-h-6 rounded px-1 text-left hover:bg-teal-50 ${value ? "" : "text-xs text-teal-700"}`}>
+    <button type="button" onClick={() => setEditing(true)} title="Click to edit" className={`min-h-6 rounded px-1 text-left hover:bg-route-50 ${value ? "" : "text-xs text-route"}`}>
       {value || placeholder}
     </button>
   );
@@ -75,9 +75,9 @@ export default function PoDetail() {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-        <h1 className="text-xl font-semibold">PO {po.po_number}</h1>
+        <h1 className="text-3xl font-semibold">PO {po.po_number}</h1>
         <span className="text-sm text-slate-500">{po.vendor ?? "No vendor"}</span>
-        <Link to="/activity" className="ml-auto text-sm text-teal-700 hover:underline">All activity →</Link>
+        <Link to="/activity" className="ml-auto text-sm text-route hover:underline">All activity</Link>
       </div>
 
       <section className="card grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -105,24 +105,24 @@ export default function PoDetail() {
       </section>
 
       <section className="card p-4">
-        <h2 className="mb-2 text-sm font-semibold text-slate-700">Shipments</h2>
+        <h2 className="mb-2 text-lg font-semibold text-ink">Shipments</h2>
         {po.shipments.length === 0 ? (
           <p className="text-sm text-slate-500">
             Not booked yet.{" "}
-            {po.status === "open" && <Link to={`/shipments/new?po=${po.id}`} className="text-teal-700 hover:underline">+ Book shipment</Link>}
+            {po.status === "open" && <Link to={`/shipments/new?po=${po.id}`} className="text-route hover:underline">+ Book shipment</Link>}
           </p>
         ) : (
           <ul className="divide-y divide-slate-100">
             {po.shipments.map((s) => (
               <li key={s.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-2 text-sm">
-                <Link to={`/shipments/${s.id}`} className="font-mono text-teal-800 hover:underline">{s.mbl ?? s.reference ?? `#${s.id}`}</Link>
+                <Link to={`/shipments/${s.id}`} className="font-mono text-route-dark hover:underline">{s.mbl ?? s.reference ?? `#${s.id}`}</Link>
                 <span className="text-slate-500">{s.carrier_name ?? s.mode}</span>
                 <span className="text-slate-500">ETA {fmtDate(s.ata ?? s.eta)}</span>
                 <span className="capitalize text-slate-500">{s.status}</span>
                 <span className="flex flex-wrap gap-1">
                   {s.containers.map((c) => (
                     <span key={c.number} className="flex items-center gap-1 text-xs">
-                      <span className="font-mono text-slate-600">{c.number}</span>
+                      <span className="text-slate-600"><ContainerNumber number={c.number} /></span>
                       <VoyageTrack milestone={c.milestone} />
                     </span>
                   ))}
@@ -135,7 +135,7 @@ export default function PoDetail() {
 
       <section className="card p-4">
         <div className="mb-3 flex flex-wrap items-center gap-3">
-          <h2 className="text-sm font-semibold text-slate-700">PO History</h2>
+          <h2 className="text-lg font-semibold text-ink">PO History</h2>
           <label className="flex items-center gap-1.5 text-xs text-slate-600">
             <input type="checkbox" checked={showTracking} onChange={(e) => setShowTracking(e.target.checked)} />
             Show carrier tracking

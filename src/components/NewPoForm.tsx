@@ -27,7 +27,7 @@ export default function NewPoForm({ onCreated, onCancel }: { onCreated: () => vo
         setSaving(false);
       }}
     >
-      <h2 className="text-sm font-semibold text-slate-700 md:col-span-4">New purchase order</h2>
+      <h2 className="text-lg font-semibold text-ink md:col-span-4">New purchase order</h2>
       <label><span className="label">PO #</span><input required autoFocus className="input" placeholder="6200ELM" value={f.po_number} onChange={set("po_number")} /></label>
       <label><span className="label">Vendor</span>
         <input className="input" list="vendors" value={f.vendor} onChange={set("vendor")} />

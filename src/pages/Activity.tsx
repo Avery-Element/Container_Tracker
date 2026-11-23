@@ -111,7 +111,7 @@ export default function Activity() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-xl font-semibold">Activity</h1>
+        <h1 className="text-3xl font-semibold">Activity</h1>
         <span className="text-sm text-slate-500">Everything recorded in PO History, newest first</span>
         <a href={csvHref} className="btn ml-auto" download>
           Export CSV
@@ -169,7 +169,7 @@ export default function Activity() {
             ["This month", localToday().slice(0, 8) + "01"],
             ["Any time", ""],
           ].map(([l, d]) => (
-            <button key={l} type="button" className="rounded px-2 py-1 text-teal-700 hover:bg-teal-50" onClick={() => setParams((p) => { const n = new URLSearchParams(p); n.set("from", d); n.delete("to"); return n; }, { replace: true })}>
+            <button key={l} type="button" className="rounded px-2 py-1 text-route hover:bg-route-50" onClick={() => setParams((p) => { const n = new URLSearchParams(p); n.set("from", d); n.delete("to"); return n; }, { replace: true })}>
               {l}
             </button>
           ))}
@@ -186,7 +186,7 @@ export default function Activity() {
       <section className="card overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 [&>th]:px-3 [&>th]:py-2">
+            <tr className="border-b border-slate-200 text-left text-xs font-display text-[0.9rem] font-semibold text-steel [&>th]:px-3 [&>th]:py-2">
               <th>When</th>
               <th>PO</th>
               <th>Vendor</th>
@@ -199,7 +199,7 @@ export default function Activity() {
               <tr key={e.id} className={`border-b border-slate-100 align-top [&>td]:px-3 [&>td]:py-2 ${TRACKING_KINDS.has(e.kind) ? "text-slate-600" : ""}`}>
                 <td className="whitespace-nowrap text-xs tabular-nums text-slate-600">{fmtTimestamp(e.recorded_at)}</td>
                 <td className="whitespace-nowrap font-medium">
-                  <Link to={`/pos/${e.po_id}`} className="text-teal-800 hover:underline">{e.po_number}</Link>
+                  <Link to={`/pos/${e.po_id}`} className="text-route-dark hover:underline">{e.po_number}</Link>
                 </td>
                 <td className="whitespace-nowrap text-slate-600">{e.vendor ?? "—"}</td>
                 <td>

@@ -1,7 +1,7 @@
 import { Fragment } from "react";
 import { Link } from "react-router-dom";
 import { api, type Container, type Dashboard as D, type Shipment } from "../api";
-import { daysFrom, EditableDate, ErrorBox, EtaWithSlip, fmtDate, Holds, PaymentBadge, PoLinks, useApi, VoyageTrack } from "../components/ui";
+import { ContainerNumber, daysFrom, EditableDate, ErrorBox, EtaWithSlip, fmtDate, Holds, PaymentBadge, PoLinks, useApi, VoyageTrack } from "../components/ui";
 import { MILESTONES } from "../../shared/milestones";
 
 export interface Row {
@@ -69,134 +69,138 @@ export default function Dashboard() {
   const counts = Object.fromEntries(data.byMilestone.map((m) => [m.milestone, m.n]));
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {atRisk.length > 0 ? (
-        <section className="card overflow-x-auto border-l-4! border-l-hazard!">
-          <div className="flex items-baseline gap-3 px-4 pt-4">
-            <h2 className="text-base font-semibold text-slate-900">Needs attention</h2>
-            <span className="text-sm text-slate-600">
-              {atRisk.length} {atRisk.length === 1 ? "container" : "containers"}
-            </span>
-          </div>
-          <table className="data mt-2">
-            <thead>
-              <tr>
-                <th>Container</th><th>PO</th><th>Vendor</th><th>Problem</th><th>Status</th><th>ETA</th>
-              </tr>
-            </thead>
-            <tbody>
-              {atRisk.map(({ r, why }) => (
-                <tr key={`${r.s.id}-${r.c?.id}`}>
-                  <td><ShipLink r={r} /></td>
-                  <td><PoLinks pos={r.s.pos} /></td>
-                  <td>{r.s.vendor}</td>
-                  <td className="font-medium text-slate-900">{why.join(", ")}</td>
-                  <td className="whitespace-nowrap">{r.c && <VoyageTrack milestone={r.c.milestone} />} <Holds holds={r.c?.holds ?? null} /></td>
-                  <td><EtaWithSlip eta={eta(r)} first={firstEta(r)} /></td>
+        <section>
+          <h2 className="section-title">
+            Needs attention
+            <small>{atRisk.length} {atRisk.length === 1 ? "container" : "containers"}</small>
+          </h2>
+          <div className="card overflow-x-auto border-l-4 border-l-hazard">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Container</th><th>PO</th><th>Vendor</th><th>Problem</th><th>Status</th><th>ETA</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {atRisk.map(({ r, why }) => (
+                  <tr key={`${r.s.id}-${r.c?.id}`}>
+                    <td><ShipLink r={r} /></td>
+                    <td><PoLinks pos={r.s.pos} /></td>
+                    <td>{r.s.vendor}</td>
+                    <td className="font-medium text-slate-900">{why.join(", ")}</td>
+                    <td className="whitespace-nowrap">{r.c && <VoyageTrack milestone={r.c.milestone} />} <Holds holds={r.c?.holds ?? null} /></td>
+                    <td><EtaWithSlip eta={eta(r)} first={firstEta(r)} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       ) : (
         <p className="text-sm text-slate-600">Nothing needs attention: no holds, slipped ETAs or tracking failures.</p>
       )}
 
-      <section className="card p-4">
-        <h2 className="mb-4 text-base font-semibold text-slate-900">Pipeline</h2>
-        <Pipeline
-          stops={[
-            { key: "awaiting", label: "Awaiting booking", n: data.pendingPos.length, to: "/shipments" },
-            ...MILESTONES.filter((m) => !["po_placed", "cargo_ready", "on_hold", "received"].includes(m.key)).map((m) => ({
-              key: m.key,
-              label: m.label,
-              n: counts[m.key] ?? 0,
-              hold: m.key === "discharged" ? counts.on_hold ?? 0 : 0,
-            })),
-          ]}
-        />
+      <section>
+        <h2 className="section-title">Pipeline</h2>
+        <div className="card px-2 py-4">
+          <Pipeline
+            stops={[
+              { key: "awaiting", label: "Awaiting booking", n: data.pendingPos.length, to: "/shipments" },
+              ...MILESTONES.filter((m) => !["po_placed", "cargo_ready", "on_hold", "received"].includes(m.key)).map((m) => ({
+                key: m.key,
+                label: m.label,
+                n: counts[m.key] ?? 0,
+                hold: m.key === "discharged" ? counts.on_hold ?? 0 : 0,
+              })),
+            ]}
+          />
+        </div>
       </section>
 
-      <section className="card overflow-x-auto">
-        <div className="flex items-baseline gap-3 px-4 pt-4">
-          <h2 className="text-base font-semibold text-slate-900">Arrivals</h2>
-          <span className="text-sm text-slate-600">
-            {arriving.length} {arriving.length === 1 ? "container" : "containers"} due in the next 14 days
-          </span>
-        </div>
-        <table className="data mt-2">
-          <thead>
-            <tr>
-              <th>Port ETA</th><th>Container</th><th>PO</th><th>Vendor</th><th>Carrier</th><th>Status</th><th>ELM delivery</th>
-            </tr>
-          </thead>
-          <tbody>
-            {arriving.length === 0 && (
-              <tr><td colSpan={7} className="text-slate-500">Nothing due in the next two weeks.</td></tr>
-            )}
-            {[...byDay].map(([day, group]) => {
-              const d = daysFrom(today, day) ?? 0;
-              return (
-                <Fragment key={day}>
-                  {group.map((r, i) => (
-                    <tr key={`${r.s.id}-${r.c?.id}`} className={i === 0 ? "[&>td]:border-t [&>td]:border-t-slate-300" : ""}>
-                      {i === 0 && (
-                        <td rowSpan={group.length} className="w-32 whitespace-nowrap border-r border-r-slate-100">
-                          <div className={`font-semibold ${d < 0 ? "text-hold" : "text-slate-900"}`}>
-                            {weekday(day)} {fmtDate(day)}
-                          </div>
-                          <div className={`text-xs ${d < 0 ? "text-hold" : "text-slate-600"}`}>{relativeDay(d)}</div>
+      <section>
+        <h2 className="section-title">
+          Arrivals
+          <small>{arriving.length} {arriving.length === 1 ? "container" : "containers"} due in the next 14 days</small>
+        </h2>
+        <div className="card overflow-x-auto">
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Port ETA</th><th>Container</th><th>PO</th><th>Vendor</th><th>Carrier</th><th>Status</th><th>ELM delivery</th>
+              </tr>
+            </thead>
+            <tbody>
+              {arriving.length === 0 && (
+                <tr><td colSpan={7} className="text-slate-500">Nothing due in the next two weeks.</td></tr>
+              )}
+              {[...byDay].map(([day, group]) => {
+                const d = daysFrom(today, day) ?? 0;
+                return (
+                  <Fragment key={day}>
+                    {group.map((r, i) => (
+                      <tr key={`${r.s.id}-${r.c?.id}`} className={i === 0 ? "[&>td]:border-t [&>td]:border-t-slate-300" : ""}>
+                        {i === 0 && (
+                          <td rowSpan={group.length} className="w-32 whitespace-nowrap border-r border-r-slate-100">
+                            <div className={`font-semibold ${d < 0 ? "text-hold" : "text-slate-900"}`}>
+                              {weekday(day)} {fmtDate(day)}
+                            </div>
+                            <div className={`text-xs ${d < 0 ? "text-hold" : "text-slate-600"}`}>{relativeDay(d)}</div>
+                          </td>
+                        )}
+                        <td><ShipLink r={r} /></td>
+                        <td><PoLinks pos={r.s.pos} /></td>
+                        <td>{r.s.vendor}</td>
+                        <td>{r.s.carrier_name ?? <span className="capitalize">{r.s.mode}</span>}</td>
+                        <td className="whitespace-nowrap">
+                          {r.c ? <VoyageTrack milestone={r.c.milestone} /> : <span className="capitalize">{r.s.mode}</span>}
+                          <EtaSlipNote r={r} />
                         </td>
-                      )}
-                      <td><ShipLink r={r} /></td>
-                      <td><PoLinks pos={r.s.pos} /></td>
-                      <td>{r.s.vendor}</td>
-                      <td>{r.s.carrier_name ?? <span className="capitalize">{r.s.mode}</span>}</td>
-                      <td className="whitespace-nowrap">
-                        {r.c ? <VoyageTrack milestone={r.c.milestone} /> : <span className="capitalize">{r.s.mode}</span>}
-                        <EtaSlipNote r={r} />
-                      </td>
-                      <td className="whitespace-nowrap">
-                        {r.c ? (
-                          <EditableDate
-                            withTime
-                            value={r.c.elm_delivery_appt}
-                            onSave={async (v) => (await api.patch(`/containers/${r.c!.id}`, { elm_delivery_appt: v }), reload())}
-                          />
-                        ) : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </Fragment>
-              );
-            })}
-          </tbody>
-        </table>
+                        <td className="whitespace-nowrap">
+                          {r.c ? (
+                            <EditableDate
+                              withTime
+                              value={r.c.elm_delivery_appt}
+                              onSave={async (v) => (await api.patch(`/containers/${r.c!.id}`, { elm_delivery_appt: v }), reload())}
+                            />
+                          ) : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <section className="card overflow-x-auto">
-          <h2 className="px-4 pt-4 text-base font-semibold text-slate-900">Awaiting booking, by cargo-ready date</h2>
-          <table className="data mt-2">
-            <thead>
-              <tr><th>PO</th><th>Vendor</th><th>Cargo ready</th><th>Payment</th></tr>
-            </thead>
-            <tbody>
-              {data.pendingPos.map((p) => (
-                <tr key={p.id}>
-                  <td className="font-medium"><PoLinks pos={[p]} /></td>
-                  <td>{p.vendor}</td>
-                  <td>{fmtDate(p.crd)}</td>
-                  <td><PaymentBadge status={p.payment_status} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <section>
+          <h2 className="section-title">Awaiting booking <small>by cargo-ready date</small></h2>
+          <div className="card overflow-x-auto">
+            <table className="data">
+              <thead>
+                <tr><th>PO</th><th>Vendor</th><th>Cargo ready</th><th>Payment</th></tr>
+              </thead>
+              <tbody>
+                {data.pendingPos.map((p) => (
+                  <tr key={p.id}>
+                    <td className="font-medium"><PoLinks pos={[p]} /></td>
+                    <td>{p.vendor}</td>
+                    <td>{fmtDate(p.crd)}</td>
+                    <td><PaymentBadge status={p.payment_status} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
 
-        <section className="card">
-          <h2 className="px-4 pt-4 text-base font-semibold text-slate-900">Recent alerts</h2>
-          <ul className="divide-y divide-slate-100 p-2 text-sm">
+        <section>
+          <h2 className="section-title">Recent alerts</h2>
+          <ul className="card divide-y divide-slate-100 p-2 text-sm">
             {data.alerts.length === 0 && <li className="px-2 py-2 text-slate-500">No alerts yet. They appear once live tracking is on.</li>}
             {data.alerts.map((a) => (
               <li key={a.id} className="flex gap-3 px-2 py-2">
@@ -243,7 +247,7 @@ function Pipeline({ stops }: { stops: Stop[] }) {
           const empty = s.n === 0;
           return (
             <li key={s.key} className="flex flex-col items-center text-center">
-              <span className={`text-2xl font-semibold tabular-nums ${empty ? "text-slate-300" : "text-slate-900"}`}>{s.n}</span>
+              <span className={`font-display text-3xl font-semibold tabular-nums ${empty ? "text-slate-300" : "text-slate-900"}`}>{s.n}</span>
               <span className="relative my-1.5 flex h-3 w-full items-center justify-center" aria-hidden>
                 <span
                   className={`absolute h-0.5 bg-slate-300 ${i === 0 ? "left-1/2 right-0" : i === stops.length - 1 ? "left-0 right-1/2" : "inset-x-0"}`}
@@ -268,8 +272,8 @@ function Pipeline({ stops }: { stops: Stop[] }) {
 
 export function ShipLink({ r }: { r: Row }) {
   return (
-    <Link to={`/shipments/${r.s.id}`} className="font-mono text-teal-800 hover:underline">
-      {r.c?.number ?? r.s.reference ?? r.s.mbl ?? `#${r.s.id}`}
+    <Link to={`/shipments/${r.s.id}`} className="font-mono text-route-dark hover:underline">
+      {r.c?.number ? <ContainerNumber number={r.c.number} /> : r.s.reference ?? r.s.mbl ?? `#${r.s.id}`}
       {r.c && !r.c.number_valid && <span title="Check digit invalid — verify number" className="ml-1 text-amber-600">⚠</span>}
     </Link>
   );

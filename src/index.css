@@ -1,59 +1,91 @@
 @import "tailwindcss";
 
+/*
+ * "Port yard" look: concrete ground, marine-ink text and header, container blue for
+ * links and progress, hazard yellow for slips, hold red only for holds and failures.
+ * Barlow (highway-signage roots) for text; Barlow Condensed for headings and table heads.
+ */
 @theme {
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  /* Port-yard palette: container blue for progress, hazard yellow for slips, hold red for holds. */
+  --font-sans: "Barlow", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Barlow Condensed", "Barlow", ui-sans-serif, system-ui, sans-serif;
+  --color-concrete: #eef0ee;
+  --color-line: #d5dbd8;
+  --color-ink: #1e2b34;
+  --color-steel: #5a6873;
   --color-route: #2457a6;
+  --color-route-dark: #1b4584;
+  --color-route-50: #e9eff8;
   --color-hazard: #f2c200;
   --color-hold: #c3102e;
 }
 
 body {
-  @apply bg-slate-50 text-slate-900 antialiased;
+  @apply bg-concrete text-ink antialiased;
+  font-size: 15px;
 }
 
-.card {
-  @apply rounded-lg border border-slate-200 bg-white shadow-sm;
-}
-.btn {
-  @apply inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-50;
-}
-.btn-primary {
-  @apply inline-flex items-center gap-1 rounded-md bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-50;
-}
-.btn-danger {
-  @apply inline-flex items-center gap-1 rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50;
-}
-.input {
-  @apply w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600;
-}
-.label {
-  @apply mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500;
-}
-table.data {
-  @apply w-full text-sm;
-}
-table.data th {
-  @apply whitespace-nowrap border-b border-slate-200 bg-slate-50 px-2 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 lg:px-3;
-}
-table.data td {
-  @apply border-b border-slate-100 bg-white px-2 py-1.5 align-top lg:px-3 lg:py-2;
-}
-table.data tr:hover td {
-  @apply bg-slate-50;
+h1,
+h2,
+h3 {
+  @apply font-display tracking-[0.01em];
 }
 
-/* Wide tables in a scroll box: header row and first column stay visible while scrolling. */
-table.data.sticky-frame th {
-  @apply sticky top-0 z-10 shadow-[inset_0_-1px_0_var(--color-slate-200)];
+/* Shared building blocks live in the components layer so utility classes on an element override them. */
+@layer components {
+  /* A white surface for tables and forms; flat, with a hairline edge. Headings sit outside it. */
+  .card {
+    @apply rounded-[3px] border border-line bg-white;
+  }
+  .section-title {
+    @apply mb-2 flex flex-wrap items-baseline gap-x-3 font-display text-lg font-semibold text-ink;
+  }
+  .section-title > small {
+    @apply font-sans text-sm font-normal text-steel;
+  }
+  .btn {
+    @apply inline-flex items-center gap-1 rounded-[3px] border border-line bg-white px-3 py-1.5 text-sm font-medium text-ink hover:border-steel disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply inline-flex items-center gap-1 rounded-[3px] bg-route px-3 py-1.5 text-sm font-semibold text-white hover:bg-route-dark disabled:opacity-50;
+  }
+  .btn-danger {
+    @apply inline-flex items-center gap-1 rounded-[3px] bg-hold px-3 py-1.5 text-sm font-semibold text-white hover:brightness-90 disabled:opacity-50;
+  }
+  .input {
+    @apply w-full rounded-[3px] border border-line bg-white px-2 py-1.5 text-sm focus:border-route focus:outline-none focus:ring-1 focus:ring-route;
+  }
+  .label {
+    @apply mb-1 block text-sm font-medium text-steel;
+  }
+  table.data {
+    @apply w-full text-sm;
+  }
+  table.data th {
+    @apply whitespace-nowrap border-b border-line bg-white px-2 py-2 text-left font-display text-[0.9rem] font-semibold text-steel lg:px-3;
+  }
+  table.data td {
+    @apply border-b border-slate-100 bg-white px-2 py-1.5 align-top lg:px-3 lg:py-2;
+  }
+  table.data tr:hover td {
+    @apply bg-route-50/50;
+  }
+
+  /* Wide tables in a scroll box: header row and first column stay visible while scrolling. */
+  table.data.sticky-frame th {
+    @apply sticky top-0 z-10 shadow-[inset_0_-1px_0_var(--color-line)];
+  }
+  table.data.sticky-frame th:first-child,
+  table.data.sticky-frame td:first-child {
+    @apply sticky left-0 shadow-[inset_-1px_0_0_var(--color-line)];
+  }
+  table.data.sticky-frame td:first-child {
+    @apply z-[5];
+  }
+  table.data.sticky-frame th:first-child {
+    @apply z-20 shadow-[inset_-1px_-1px_0_var(--color-line)];
+  }
 }
-table.data.sticky-frame th:first-child,
-table.data.sticky-frame td:first-child {
-  @apply sticky left-0 shadow-[inset_-1px_0_0_var(--color-slate-200)];
-}
-table.data.sticky-frame td:first-child {
-  @apply z-[5];
-}
-table.data.sticky-frame th:first-child {
-  @apply z-20 shadow-[inset_-1px_-1px_0_var(--color-slate-200)];
+
+:focus-visible {
+  outline-color: var(--color-route);
 }
