@@ -240,7 +240,8 @@ function PoLine({ p, onChange }: { p: PurchaseOrder; onChange: () => void }) {
       <td className="whitespace-nowrap text-slate-500">{p.forwarder ? `FF ${p.forwarder}` : "—"}</td>
       <td className="whitespace-nowrap text-xs text-slate-500">{p.vendor_pi ? `PI ${p.vendor_pi}` : ""}</td>
       <td className="whitespace-nowrap">
-        <div className="flex items-center gap-1">
+        {/* Top-aligned so both dropdowns stay level when a payment date shows under the payment one. */}
+        <div className="flex items-start gap-1">
           <select
             className="input w-auto! py-0.5! text-xs!"
             aria-label={`PO ${p.po_number} status`}
