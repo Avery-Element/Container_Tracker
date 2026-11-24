@@ -14,6 +14,8 @@ export interface Container {
   elm_delivery_appt: string | null;
   received_at?: string | null;
   size: string | null;
+  /** 1 = Pallets ticked */
+  pallets?: number;
   watched_by?: string | null;
   watched_at?: string | null;
 }
@@ -25,6 +27,8 @@ export interface PoRef {
   deposit_paid_on?: string | null;
   paid_on?: string | null;
   order_date: string | null;
+  vendor_pi?: string | null;
+  forwarder?: string | null;
   watched_by?: string | null;
   watched_at?: string | null;
 }

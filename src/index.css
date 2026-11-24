@@ -70,19 +70,9 @@ h3 {
     @apply bg-route-50/50;
   }
 
-  /* Wide tables in a scroll box: header row and first column stay visible while scrolling. */
+  /* Wide tables in a scroll box: the header row stays visible while scrolling down. */
   table.data.sticky-frame th {
     @apply sticky top-0 z-10 shadow-[inset_0_-1px_0_var(--color-line)];
-  }
-  table.data.sticky-frame th:first-child,
-  table.data.sticky-frame td:first-child {
-    @apply sticky left-0 shadow-[inset_-1px_0_0_var(--color-line)];
-  }
-  table.data.sticky-frame td:first-child {
-    @apply z-[5];
-  }
-  table.data.sticky-frame th:first-child {
-    @apply z-20 shadow-[inset_-1px_-1px_0_var(--color-line)];
   }
 }
 

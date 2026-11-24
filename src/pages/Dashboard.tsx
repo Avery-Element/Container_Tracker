@@ -133,7 +133,7 @@ export default function Dashboard() {
           </div>
         </section>
       ) : (
-        <p className="text-sm text-slate-600">Not watching anything. Tick the box on a line in Shipments to pin it here.</p>
+        <p className="text-sm text-slate-600">Not watching anything. Tick the box on a line in Shipments to list it here.</p>
       )}
 
       {atRisk.length > 0 ? (

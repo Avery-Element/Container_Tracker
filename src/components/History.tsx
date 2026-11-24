@@ -20,6 +20,7 @@ const FIELD_LABELS: Record<string, string> = {
   eta: "ETA",
   elm_delivery_appt: "ELM delivery appointment",
   received_at: "Received date",
+  pallets: "Pallets",
   milestone: "Milestone",
 };
 
@@ -73,6 +74,7 @@ function fmtValue(field: string | null, kind: string, v: string | null): string 
   if (field === "status") return (kind === "shipment_status" ? SHIPMENT_STATUS : PO_STATUS)[v] ?? v;
   if (field && DATE_FIELDS.has(field)) return fmtDate(v);
   if (field === "elm_delivery_appt") return fmtDate(v, v.length > 10);
+  if (field === "pallets") return v === "1" ? "Ticked" : "Not ticked";
   return v;
 }
 

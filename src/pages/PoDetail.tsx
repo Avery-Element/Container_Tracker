@@ -1,42 +1,11 @@
 // One PO: its details (editable), its shipments, and its full PO History.
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, type PoDetail as PD } from "../api";
-import { EditableDate, ErrorBox, fmtDate, useApi, VoyageTrack, ContainerNumber } from "../components/ui";
+import { EditableDate, EditableText, ErrorBox, fmtDate, useApi, VoyageTrack, ContainerNumber } from "../components/ui";
 import { PaymentSelect } from "../components/NewPoForm";
 import { HistoryTimeline, TRACKING_KINDS } from "../components/History";
 import { WatchBox, watchedBy } from "../components/Watch";
-
-/** Click-to-edit text; saves on Enter or when focus leaves, Escape cancels. */
-function EditableText({ value, onSave, placeholder = "+ set", list }: { value: string | null; onSave: (v: string) => Promise<void>; placeholder?: string; list?: string }) {
-  const [editing, setEditing] = useState(false);
-  const [v, setV] = useState(value ?? "");
-  useEffect(() => setV(value ?? ""), [value]);
-  const commit = async () => {
-    setEditing(false);
-    if (v.trim() !== (value ?? "")) await onSave(v.trim());
-  };
-  if (editing)
-    return (
-      <input
-        autoFocus
-        list={list}
-        className="input py-1 text-sm"
-        value={v}
-        onChange={(e) => setV(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") commit();
-          if (e.key === "Escape") (setV(value ?? ""), setEditing(false));
-        }}
-      />
-    );
-  return (
-    <button type="button" onClick={() => setEditing(true)} title="Click to edit" className={`min-h-6 rounded px-1 text-left hover:bg-route-50 ${value ? "" : "text-xs text-route"}`}>
-      {value || placeholder}
-    </button>
-  );
-}
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -82,7 +51,7 @@ export default function PoDetail() {
           <WatchBox
             watched={!!po.watched_at}
             label={`Watch PO ${po.po_number}`}
-            title="Pins this PO and all its containers to the top of Shipments and lists them on the Dashboard"
+            title="Highlights this PO and all its containers in Shipments and lists them on the Dashboard"
             onToggle={(next) => api.patch(`/pos/${po.id}`, { watched: next })}
             onSaved={reload}
           />

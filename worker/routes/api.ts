@@ -31,14 +31,14 @@ const SHIPMENT_SELECT = `
   SELECT s.*,
     (SELECT json_group_array(json_object('id', po.id, 'po_number', po.po_number, 'payment_status', po.payment_status,
         'deposit_paid_on', po.deposit_paid_on, 'paid_on', po.paid_on, 'order_date', po.order_date,
-        'watched_by', po.watched_by, 'watched_at', po.watched_at))
+        'watched_by', po.watched_by, 'watched_at', po.watched_at, 'vendor_pi', po.vendor_pi, 'forwarder', po.forwarder))
        FROM shipment_pos sp JOIN purchase_orders po ON po.id = sp.po_id WHERE sp.shipment_id = s.id) AS pos_json,
     (SELECT v.name FROM shipment_pos sp JOIN purchase_orders po ON po.id = sp.po_id
        JOIN vendors v ON v.id = po.vendor_id WHERE sp.shipment_id = s.id LIMIT 1) AS vendor,
     (SELECT json_group_array(json_object('id', c.id, 'number', c.number, 'number_valid', c.number_valid,
         'milestone', c.milestone, 'eta', c.eta, 'original_eta', c.original_eta, 'holds', c.holds,
         'elm_delivery_appt', c.elm_delivery_appt, 'size', c.size, 'available', c.available,
-        'watched_by', c.watched_by, 'watched_at', c.watched_at))
+        'watched_by', c.watched_by, 'watched_at', c.watched_at, 'pallets', c.pallets))
        FROM containers c WHERE c.shipment_id = s.id) AS containers_json,
     (SELECT json_object('body', n.body, 'author', n.author, 'created_at', n.created_at)
        FROM notes n WHERE n.shipment_id = s.id
@@ -369,19 +369,23 @@ api.patch("/containers/:id", async (c) => {
   if (body.milestone === "received" && !("received_at" in body)) sets.push("received_at = COALESCE(received_at, date('now'))");
   const actor = c.get("user");
   watchSets(body, actor, sets, binds);
+  if ("pallets" in body) {
+    sets.push("pallets = ?");
+    binds.push(body.pallets ? 1 : 0);
+  }
   if (!sets.length) return c.json({ ok: true });
   const db = c.env.DB;
   const prev = await db
-    .prepare(`SELECT shipment_id, number, milestone, elm_delivery_appt, received_at FROM containers WHERE id = ?`)
+    .prepare(`SELECT shipment_id, number, milestone, elm_delivery_appt, received_at, pallets FROM containers WHERE id = ?`)
     .bind(id)
-    .first<{ shipment_id: number; number: string; milestone: string; elm_delivery_appt: string | null; received_at: string | null }>();
+    .first<{ shipment_id: number; number: string; milestone: string; elm_delivery_appt: string | null; received_at: string | null; pallets: number }>();
   if (!prev) return c.json({ error: "Not found" }, 404);
   const stmts: D1PreparedStatement[] = [];
   const onPos = (e: Parameters<typeof forShipmentPos>[2]) =>
     stmts.push(forShipmentPos(db, prev.shipment_id, { container_number: prev.number, ...e }));
   if (body.milestone && body.milestone !== prev.milestone)
     onPos({ kind: "milestone", actor, field: "milestone", old_value: prev.milestone, new_value: body.milestone });
-  // Logged changes: delivery appointment and received date (size and other fields are not).
+  // Logged changes: delivery appointment, received date and pallets (size and other fields are not).
   const nextReceived =
     "received_at" in body ? body.received_at || null : body.milestone === "received" ? (prev.received_at ?? today()) : prev.received_at;
   const nextAppt = "elm_delivery_appt" in body ? body.elm_delivery_appt || null : prev.elm_delivery_appt;
@@ -389,6 +393,8 @@ api.patch("/containers/:id", async (c) => {
     onPos({ kind: "container_changed", actor, field: "elm_delivery_appt", old_value: prev.elm_delivery_appt, new_value: nextAppt });
   if (nextReceived !== prev.received_at)
     onPos({ kind: "container_changed", actor, field: "received_at", old_value: prev.received_at, new_value: nextReceived });
+  if ("pallets" in body && (body.pallets ? 1 : 0) !== prev.pallets)
+    onPos({ kind: "container_changed", actor, field: "pallets", old_value: String(prev.pallets), new_value: body.pallets ? "1" : "0" });
   stmts.push(db.prepare(`UPDATE containers SET ${sets.join(", ")}, updated_at = datetime('now') WHERE id = ?`).bind(...binds, id));
   await db.batch(stmts);
   if (body.milestone) {

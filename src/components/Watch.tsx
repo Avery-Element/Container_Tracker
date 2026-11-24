@@ -1,5 +1,5 @@
-// Watching: a shared tag that pins a line to the top of the Shipments table and lists it on
-// the Dashboard. A container line also counts as watched when any PO on its shipment is
+// Watching: a shared tag that highlights a line in the Shipments table (it keeps its sort
+// position) and lists it on the Dashboard. A container line also counts as watched when any PO on its shipment is
 // watched, so the watch follows a PO onto its containers once it's booked.
 import { useState } from "react";
 import { api, type Container, type PoRef } from "../api";
@@ -8,9 +8,9 @@ import { fmtDate } from "./ui";
 type Watchable = { watched_by?: string | null; watched_at?: string | null };
 type Line = { s: { pos: PoRef[] }; c: Container | null };
 
-/** Highlight for a watched row in a table: pale route-blue fill and a route-blue bar on the left edge. */
+/** Highlight for a watched row in a table: pale route-blue fill and a route-blue bar on the left edge. Rows keep their sort position. */
 export const WATCHED_ROW =
-  "[&>td]:bg-route-50 [&>td:first-child]:shadow-[inset_3px_0_0_var(--color-route),inset_-1px_0_0_var(--color-line)]";
+  "[&>td]:bg-route-50 [&>td:first-child]:shadow-[inset_3px_0_0_var(--color-route)]";
 
 /** "avery, Nov 24": who ticked it (the part of the email before the @) and when. */
 export function watchedBy(w: Watchable): string {

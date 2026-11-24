@@ -179,15 +179,25 @@ export function Holds({ holds }: { holds: string | null }) {
   );
 }
 
+const TRACKING: Record<string, [string, string]> = {
+  tracking: ["Live", "bg-emerald-500"],
+  pending: ["Looking up…", "bg-amber-400"],
+  failed: ["Tracking failed", "bg-red-500"],
+  stopped: ["Tracking stopped", "bg-slate-400"],
+  not_trackable: ["Not trackable", "bg-slate-300"],
+};
+const trackingOf = (status: string | null) => TRACKING[status ?? ""] ?? ["Not tracked", "bg-slate-300"];
+
+/** Just the coloured dot (green Live, red failed); the label is its tooltip and screen-reader text. */
+export function TrackingDot({ status, error }: { status: string | null; error?: string | null }) {
+  const [label, dot] = trackingOf(status);
+  return (
+    <span className={`ml-1.5 inline-block size-2 shrink-0 rounded-full align-middle ${dot}`} title={error ? `${label}: ${error}` : label} role="img" aria-label={label} />
+  );
+}
+
 export function TrackingStatus({ status, error }: { status: string | null; error?: string | null }) {
-  const map: Record<string, [string, string]> = {
-    tracking: ["Live", "bg-emerald-500"],
-    pending: ["Looking up…", "bg-amber-400"],
-    failed: ["Tracking failed", "bg-red-500"],
-    stopped: ["Tracking stopped", "bg-slate-400"],
-    not_trackable: ["Not trackable", "bg-slate-300"],
-  };
-  const [label, dot] = map[status ?? ""] ?? ["Not tracked", "bg-slate-300"];
+  const [label, dot] = trackingOf(status);
   return (
     <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-slate-600" title={error ?? undefined}>
       <span className={`h-2 w-2 rounded-full ${dot}`} />
@@ -260,6 +270,37 @@ export function EditableDate({
       className={`min-h-6 rounded px-1 text-left hover:bg-route-50 focus-visible:outline-2 focus-visible:outline-route ${current ? "" : "text-xs text-route"}`}
     >
       {current ? fmtDate(current, withTime) : placeholder}
+    </button>
+  );
+}
+
+/** Click-to-edit text; saves on Enter or when focus leaves, Escape cancels. */
+export function EditableText({ value, onSave, placeholder = "+ set", list }: { value: string | null; onSave: (v: string) => Promise<void>; placeholder?: string; list?: string }) {
+  const [editing, setEditing] = useState(false);
+  const [v, setV] = useState(value ?? "");
+  useEffect(() => setV(value ?? ""), [value]);
+  const commit = async () => {
+    setEditing(false);
+    if (v.trim() !== (value ?? "")) await onSave(v.trim());
+  };
+  if (editing)
+    return (
+      <input
+        autoFocus
+        list={list}
+        className="input py-1 text-sm"
+        value={v}
+        onChange={(e) => setV(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit();
+          if (e.key === "Escape") (setV(value ?? ""), setEditing(false));
+        }}
+      />
+    );
+  return (
+    <button type="button" onClick={() => setEditing(true)} title="Click to edit" className={`min-h-6 rounded px-1 text-left hover:bg-route-50 ${value ? "" : "text-xs text-route"}`}>
+      {value || placeholder}
     </button>
   );
 }

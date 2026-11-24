@@ -7,7 +7,7 @@ The full chronological record of everything that happened to a Purchase Order, s
 _Avoid_: event log, audit log, PO events
 
 **History Entry**
-One recorded happening in a PO History: who did it, when it was recorded, and what happened. A change to a PO field produces one History Entry per field, showing the old and new value. These also produce History Entries: linking or unlinking a shipment (including because a shipment was deleted), adding a note, ETA changes on the PO's shipments, delivery appointment and received-date changes on its containers, containers being added to or removed from its shipments, shipment status changes, tracking starting or failing, and Tracking Events on its shipments.
+One recorded happening in a PO History: who did it, when it was recorded, and what happened. A change to a PO field produces one History Entry per field, showing the old and new value. These also produce History Entries: linking or unlinking a shipment (including because a shipment was deleted), adding a note, ETA changes on the PO's shipments, delivery appointment, received-date and Pallets changes on its containers, containers being added to or removed from its shipments, shipment status changes, tracking starting or failing, and Tracking Events on its shipments.
 History Entries are permanent. Nobody can edit, hide or delete one. A mistake is fixed by making another change, which adds its own entry.
 _Avoid_: event (reserved for Tracking Event)
 
@@ -40,6 +40,9 @@ _Avoid_: event, when you mean a History Entry
 
 **Milestone**
 A step on a container's journey: PO placed, Cargo ready, Booked, Loaded, Departed, Transshipment, Arrived, Discharged, On hold, Available, Out-gated, Delivered, Received. Many Tracking Events can map to the same Milestone.
+
+**Pallets**
+A tick on a container in the Shipments table. Ticking or unticking it is recorded in the PO History of every PO on the container's shipment.
 
 **Origin departure**
 The moment the vessel leaves the port of loading. In PO History, every Tracking Event before this point is shown. The departure itself, and everything after it, is shown as Milestone changes: one per Milestone passed, starting with Departed.

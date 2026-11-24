@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, type PurchaseOrder, type Shipment } from "../api";
-import { AWAITING_BOOKING, EditableDate, ErrorBox, EtaWithSlip, fmtDate, Holds, PoLinks, TrackingStatus, useApi, VoyageTrack } from "../components/ui";
+import { api, type PoRef, type PurchaseOrder, type Shipment } from "../api";
+import { AWAITING_BOOKING, EditableDate, EditableText, ErrorBox, EtaWithSlip, fmtDate, Holds, PoLinks, TrackingDot, useApi, VoyageTrack } from "../components/ui";
 import NewPoForm, { PaymentSelect } from "../components/NewPoForm";
 import { MILESTONES, MILESTONE_ORDER } from "../../shared/milestones";
 import { ShipLink, type Row } from "./Dashboard";
@@ -47,9 +47,6 @@ function sortRows(rows: Line[], sort: Sort): Line[] {
 }
 
 const isWatched = (l: Line) => (l.kind === "ship" ? lineWatch(l.r).watched : !!l.p.watched_at);
-
-/** Watched lines go first, whatever the sort; each group keeps its own order. */
-const pinWatched = (rows: Line[]) => [...rows.filter(isWatched), ...rows.filter((l) => !isWatched(l))];
 
 function SortHeader({ label, k, sort, setSort }: { label: string; k: SortKey; sort: Sort; setSort: (s: Sort) => void }) {
   const active = sort?.key === k;
@@ -125,7 +122,7 @@ export default function Shipments() {
       : milestone
         ? rows.filter((l) => l.kind === "ship" && l.r.c?.milestone === milestone)
         : [...poRows, ...rows];
-  const shown = pinWatched(sortRows(filtered, sort));
+  const shown = sortRows(filtered, sort);
   const watchedCount = shown.filter(isWatched).length;
 
   return (
@@ -172,18 +169,18 @@ export default function Shipments() {
         <NewPoForm onCreated={() => (setShowNewPo(false), reloadPos())} onCancel={() => setShowNewPo(false)} />
       )}
       <ErrorBox error={error ?? poError} />
-      {/* Scroll box sized to the screen so the header row, the container column and the
-          sideways scrollbar are always in view, instead of the scrollbar sitting below the last row. */}
+      {/* Scroll box sized to the screen so the header row and the sideways scrollbar are
+          always in view, instead of the scrollbar sitting below the last row. */}
       <div className="card max-h-[75dvh] min-h-80 overflow-auto sm:max-h-[calc(100dvh-9rem)]">
         <table className="data sticky-frame">
           <thead>
             <tr>
-              <th>Container / ref</th><th>PO</th>
               <SortHeader label="Date entered" k="entered" sort={sort} setSort={setSort} />
-              <th>Vendor</th><th>Carrier</th><th>BL / booking</th>
+              <th>Vendor PI #</th><th>Vendor</th><th>PO</th>
               <SortHeader label="Status" k="status" sort={sort} setSort={setSort} />
+              <th>FF</th><th>Carrier</th><th>BL / booking</th><th>Container / ref</th><th>Pallets</th>
               <SortHeader label="ETA" k="eta" sort={sort} setSort={setSort} />
-              <th>ELM delivery</th><th>Notes</th><th>Tracking</th>
+              <th>ELM delivery</th><th>Notes</th>
             </tr>
           </thead>
           <tbody>
@@ -191,6 +188,10 @@ export default function Shipments() {
               if (l.kind === "po") return <PoLine key={`po-${l.p.id}`} p={l.p} onChange={reloadPos} />;
               const r = l.r;
               const w = lineWatch(r);
+              const savePo = (po: PoRef) => async (body: Record<string, string | null>) => {
+                await api.patch(`/pos/${po.id}`, body);
+                reload();
+              };
               return (
               <tr key={`${r.s.id}-${r.c?.id ?? "x"}`} className={w.watched ? WATCHED_ROW : ""}>
                 <td className="whitespace-nowrap">
@@ -200,24 +201,43 @@ export default function Shipments() {
                       label={`Watch ${r.c ? `container ${r.c.number}` : `shipment ${r.s.mbl ?? r.s.reference ?? r.s.id}`}`}
                       title={
                         w.own || !w.watched
-                          ? w.why || "Watch: pin this line to the top and list it on the Dashboard"
+                          ? w.why || "Watch: highlight this line and list it on the Dashboard"
                           : `${w.why}. Unticking stops watching the PO and all its containers.`
                       }
                       onToggle={(next) => setLineWatch(r, next)}
                       onSaved={reloadAll}
                     />
                   )}
-                  <ShipLink r={r} />
+                  {fmtDate(enteredDate(r))}
                 </td>
-                <td><PoLinks pos={r.s.pos} /></td>
-                <td className="whitespace-nowrap">{fmtDate(enteredDate(r))}</td>
+                <td className="whitespace-nowrap text-xs">
+                  {r.s.pos.map((po) => (
+                    <div key={po.id} title={r.s.pos.length > 1 ? `PO ${po.po_number}` : undefined}>
+                      <EditableText value={po.vendor_pi ?? null} onSave={(v) => savePo(po)({ vendor_pi: v })} />
+                    </div>
+                  ))}
+                </td>
                 <td className="whitespace-nowrap">{r.s.vendor}</td>
-                <td className="whitespace-nowrap">{r.s.carrier_name ?? <span className="capitalize text-slate-500">{r.s.mode}</span>}</td>
-                <td className="font-mono text-xs">{r.s.mbl}</td>
+                <td><PoLinks pos={r.s.pos} /></td>
                 <td className="whitespace-nowrap">
                   {r.c ? <VoyageTrack milestone={r.c.milestone} /> : <span className="text-xs text-slate-500">{r.s.status}</span>}{" "}
                   <Holds holds={r.c?.holds ?? null} />
+                  {/* Payment stays visible for the whole journey, one per PO on the shipment. */}
+                  {r.s.pos.map((po) => (
+                    <div key={po.id} className="mt-1 flex items-start gap-1">
+                      {r.s.pos.length > 1 && <span className="pt-0.5 text-xs text-slate-500">{po.po_number}</span>}
+                      <PaymentSelect po={po} onSave={savePo(po)} />
+                    </div>
+                  ))}
                 </td>
+                <td className="whitespace-nowrap">{r.s.forwarder ?? r.s.pos.find((po) => po.forwarder)?.forwarder ?? "—"}</td>
+                <td className="whitespace-nowrap">{r.s.carrier_name ?? <span className="capitalize text-slate-500">{r.s.mode}</span>}</td>
+                <td className="font-mono text-xs">{r.s.mbl}</td>
+                <td className="whitespace-nowrap">
+                  <ShipLink r={r} />
+                  {r.s.mode === "ocean" && <TrackingDot status={r.s.tracking_status} error={r.s.tracking_error} />}
+                </td>
+                <td>{r.c && <PalletsBox id={r.c.id} number={r.c.number} checked={!!r.c.pallets} onSaved={reload} />}</td>
                 <td><EtaWithSlip eta={r.c?.eta ?? r.s.eta} first={firstEta(r)} /></td>
                 <td className="whitespace-nowrap">
                   {r.c ? (
@@ -229,7 +249,6 @@ export default function Shipments() {
                   ) : "—"}
                 </td>
                 <td><NoteCell s={r.s} onAdded={reload} /></td>
-                <td>{r.s.mode === "ocean" && <TrackingStatus status={r.s.tracking_status} error={r.s.tracking_error} />}</td>
               </tr>
               );
             })}
@@ -253,10 +272,36 @@ function PoLine({ p, onChange }: { p: PurchaseOrder; onChange: () => void }) {
         <WatchBox
           watched={watched}
           label={`Watch PO ${p.po_number}`}
-          title={watched ? `Watched by ${watchedBy(p)}` : "Watch: pin this PO to the top, list it on the Dashboard, and keep watching its containers once booked"}
+          title={watched ? `Watched by ${watchedBy(p)}` : "Watch: highlight this PO, list it on the Dashboard, and keep watching its containers once booked"}
           onToggle={(next) => api.patch(`/pos/${p.id}`, { watched: next })}
           onSaved={onChange}
         />
+        {fmtDate(p.order_date)}
+      </td>
+      <td className="whitespace-nowrap text-xs">
+        <EditableText value={p.vendor_pi} onSave={(v) => patch({ vendor_pi: v })} />
+      </td>
+      <td className="whitespace-nowrap">{p.vendor}</td>
+      <td className="font-medium"><PoLinks pos={[p]} /></td>
+      <td className="whitespace-nowrap">
+        <select
+          className="input w-auto! py-0.5! text-xs!"
+          aria-label={`PO ${p.po_number} status`}
+          value={p.status}
+          onChange={(e) => patch({ status: e.target.value })}
+        >
+          <option value="open">Awaiting booking</option>
+          <option value="received">PO received</option>
+          <option value="cancelled">PO cancelled</option>
+        </select>
+        <div className="mt-1">
+          <PaymentSelect po={p} onSave={patch} />
+        </div>
+      </td>
+      <td className="whitespace-nowrap">{p.forwarder ?? "—"}</td>
+      <td className="text-slate-500">—</td>
+      <td className="text-slate-500">—</td>
+      <td className="whitespace-nowrap">
         {p.status === "open" ? (
           <Link to={`/shipments/new?po=${p.id}`} className="text-sm font-medium text-route hover:underline">
             + Book shipment
@@ -265,27 +310,7 @@ function PoLine({ p, onChange }: { p: PurchaseOrder; onChange: () => void }) {
           <span className="text-xs text-slate-500">—</span>
         )}
       </td>
-      <td className="font-medium"><PoLinks pos={[p]} /></td>
-      <td className="whitespace-nowrap">{fmtDate(p.order_date)}</td>
-      <td className="whitespace-nowrap">{p.vendor}</td>
-      <td className="whitespace-nowrap text-slate-500">{p.forwarder ? `FF ${p.forwarder}` : "—"}</td>
-      <td className="whitespace-nowrap text-xs text-slate-500">{p.vendor_pi ? `PI ${p.vendor_pi}` : ""}</td>
-      <td className="whitespace-nowrap">
-        {/* Top-aligned so both dropdowns stay level when a payment date shows under the payment one. */}
-        <div className="flex items-start gap-1">
-          <select
-            className="input w-auto! py-0.5! text-xs!"
-            aria-label={`PO ${p.po_number} status`}
-            value={p.status}
-            onChange={(e) => patch({ status: e.target.value })}
-          >
-            <option value="open">Awaiting booking</option>
-            <option value="received">PO received</option>
-            <option value="cancelled">PO cancelled</option>
-          </select>
-          <PaymentSelect po={p} onSave={patch} />
-        </div>
-      </td>
+      <td />
       <td className="whitespace-nowrap">
         <span className="mr-1 text-xs text-slate-500">Cargo ready</span>
         <EditableDate value={p.crd} onSave={(v) => patch({ crd: v })} />
@@ -294,8 +319,35 @@ function PoLine({ p, onChange }: { p: PurchaseOrder; onChange: () => void }) {
       <td className="min-w-48 max-w-72 text-xs text-slate-600">
         <p className="line-clamp-2" title={p.description ?? undefined}>{p.description}</p>
       </td>
-      <td />
     </tr>
+  );
+}
+
+/** Pallets checkbox for one container. Saves straight away; each change goes in PO History. */
+function PalletsBox({ id, number, checked, onSaved }: { id: number; number: string; checked: boolean; onSaved: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <input
+      type="checkbox"
+      className={`size-4 cursor-pointer accent-route ${error ? "outline-2 outline-hold" : ""}`}
+      aria-label={`Pallets for container ${number}`}
+      title={error ? `Couldn't save: ${error}` : undefined}
+      checked={checked}
+      disabled={busy}
+      onChange={async (e) => {
+        setBusy(true);
+        setError(null);
+        try {
+          await api.patch(`/containers/${id}`, { pallets: e.target.checked });
+        } catch (err) {
+          setError((err as Error).message);
+        } finally {
+          setBusy(false);
+          onSaved();
+        }
+      }}
+    />
   );
 }
 
