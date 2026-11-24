@@ -5,6 +5,7 @@ import { api, type PoDetail as PD } from "../api";
 import { EditableDate, ErrorBox, fmtDate, useApi, VoyageTrack, ContainerNumber } from "../components/ui";
 import { PaymentSelect } from "../components/NewPoForm";
 import { HistoryTimeline, TRACKING_KINDS } from "../components/History";
+import { WatchBox, watchedBy } from "../components/Watch";
 
 /** Click-to-edit text; saves on Enter or when focus leaves, Escape cancels. */
 function EditableText({ value, onSave, placeholder = "+ set", list }: { value: string | null; onSave: (v: string) => Promise<void>; placeholder?: string; list?: string }) {
@@ -77,6 +78,16 @@ export default function PoDetail() {
       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
         <h1 className="text-3xl font-semibold">PO {po.po_number}</h1>
         <span className="text-sm text-slate-500">{po.vendor ?? "No vendor"}</span>
+        <label className="flex items-center text-sm text-slate-700">
+          <WatchBox
+            watched={!!po.watched_at}
+            label={`Watch PO ${po.po_number}`}
+            title="Pins this PO and all its containers to the top of Shipments and lists them on the Dashboard"
+            onToggle={(next) => api.patch(`/pos/${po.id}`, { watched: next })}
+            onSaved={reload}
+          />
+          {po.watched_at ? `Watching (${watchedBy(po)})` : "Watch"}
+        </label>
         <Link to="/activity" className="ml-auto text-sm text-route hover:underline">All activity</Link>
       </div>
 

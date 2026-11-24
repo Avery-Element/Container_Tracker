@@ -16,17 +16,29 @@ export const api = new Hono<{ Bindings: Env } & Vars>();
 const today = () => new Date().toISOString().slice(0, 10);
 const dayOf = (s: string | null | undefined) => (s ? s.slice(0, 10) : null);
 
+/**
+ * `{ watched: true | false }` in a PATCH body ticks or unticks Watching on a container or PO:
+ * records who and when, or clears both. Not logged in PO History (it's a view setting).
+ */
+function watchSets(body: Record<string, unknown>, actor: string, sets: string[], binds: unknown[]) {
+  if (!("watched" in body)) return;
+  sets.push("watched_by = ?", "watched_at = ?");
+  binds.push(...(body.watched ? [actor, new Date().toISOString()] : [null, null]));
+}
+
 // Shipment list query reused by the dashboard and shipments page.
 const SHIPMENT_SELECT = `
   SELECT s.*,
     (SELECT json_group_array(json_object('id', po.id, 'po_number', po.po_number, 'payment_status', po.payment_status,
-        'deposit_paid_on', po.deposit_paid_on, 'paid_on', po.paid_on, 'order_date', po.order_date))
+        'deposit_paid_on', po.deposit_paid_on, 'paid_on', po.paid_on, 'order_date', po.order_date,
+        'watched_by', po.watched_by, 'watched_at', po.watched_at))
        FROM shipment_pos sp JOIN purchase_orders po ON po.id = sp.po_id WHERE sp.shipment_id = s.id) AS pos_json,
     (SELECT v.name FROM shipment_pos sp JOIN purchase_orders po ON po.id = sp.po_id
        JOIN vendors v ON v.id = po.vendor_id WHERE sp.shipment_id = s.id LIMIT 1) AS vendor,
     (SELECT json_group_array(json_object('id', c.id, 'number', c.number, 'number_valid', c.number_valid,
         'milestone', c.milestone, 'eta', c.eta, 'original_eta', c.original_eta, 'holds', c.holds,
-        'elm_delivery_appt', c.elm_delivery_appt, 'size', c.size, 'available', c.available))
+        'elm_delivery_appt', c.elm_delivery_appt, 'size', c.size, 'available', c.available,
+        'watched_by', c.watched_by, 'watched_at', c.watched_at))
        FROM containers c WHERE c.shipment_id = s.id) AS containers_json,
     (SELECT json_object('body', n.body, 'author', n.author, 'created_at', n.created_at)
        FROM notes n WHERE n.shipment_id = s.id
@@ -355,9 +367,10 @@ api.patch("/containers/:id", async (c) => {
       binds.push(body[f] === "" ? null : body[f]);
     }
   if (body.milestone === "received" && !("received_at" in body)) sets.push("received_at = COALESCE(received_at, date('now'))");
+  const actor = c.get("user");
+  watchSets(body, actor, sets, binds);
   if (!sets.length) return c.json({ ok: true });
   const db = c.env.DB;
-  const actor = c.get("user");
   const prev = await db
     .prepare(`SELECT shipment_id, number, milestone, elm_delivery_appt, received_at FROM containers WHERE id = ?`)
     .bind(id)
@@ -684,6 +697,7 @@ api.patch("/pos/:id", async (c) => {
     sets.push("vendor_id = ?");
     binds.push(await vendorId(c.env, b.vendor));
   }
+  watchSets(b, c.get("user"), sets, binds);
   if (!sets.length) return c.json({ ok: true });
   const db = c.env.DB;
   // History statements compare against the stored values, so they run first in the same transaction.

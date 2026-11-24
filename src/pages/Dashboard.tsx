@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api, type Container, type Dashboard as D, type Shipment } from "../api";
 import { AWAITING_BOOKING, ContainerNumber, daysFrom, EditableDate, ErrorBox, EtaWithSlip, fmtDate, Holds, PaymentBadge, PoLinks, useApi, VoyageTrack } from "../components/ui";
 import { MILESTONES } from "../../shared/milestones";
+import { lineWatch, setLineWatch, WatchBox, watchedBy } from "../components/Watch";
 
 export interface Row {
   s: Shipment;
@@ -67,9 +68,74 @@ export default function Dashboard() {
     byDay.set(day, [...(byDay.get(day) ?? []), r]);
   }
   const counts = Object.fromEntries(data.byMilestone.map((m) => [m.milestone, m.n]));
+  const watchedRows = rows.map((r) => ({ r, w: lineWatch(r) })).filter((x) => x.w.watched);
+  const watchedPos = data.pendingPos.filter((p) => p.watched_at);
+  const watchedCount = watchedRows.length + watchedPos.length;
 
   return (
     <div className="space-y-8">
+      {watchedCount > 0 ? (
+        <section>
+          <h2 className="section-title">
+            Watching
+            <small>{watchedCount} {watchedCount === 1 ? "line" : "lines"}</small>
+          </h2>
+          <div className="card overflow-x-auto border-l-4 border-l-route">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Container / PO</th><th>PO</th><th>Vendor</th><th>Status</th><th>ETA</th><th>Watched by</th>
+                </tr>
+              </thead>
+              <tbody>
+                {watchedPos.map((p) => (
+                  <tr key={`po-${p.id}`}>
+                    <td className="whitespace-nowrap">
+                      <WatchBox
+                        watched
+                        label={`Watch PO ${p.po_number}`}
+                        title="Untick to stop watching"
+                        onToggle={() => api.patch(`/pos/${p.id}`, { watched: false })}
+                        onSaved={reload}
+                      />
+                      <span className="text-xs text-slate-500">Not booked</span>
+                    </td>
+                    <td className="font-medium"><PoLinks pos={[p]} /></td>
+                    <td>{p.vendor}</td>
+                    <td className="whitespace-nowrap text-slate-600">Awaiting booking</td>
+                    <td className="whitespace-nowrap text-slate-600">{p.crd ? `Cargo ready ${fmtDate(p.crd)}` : "—"}</td>
+                    <td className="whitespace-nowrap text-slate-600">{watchedBy(p)}</td>
+                  </tr>
+                ))}
+                {watchedRows.map(({ r, w }) => (
+                  <tr key={`${r.s.id}-${r.c?.id}`}>
+                    <td className="whitespace-nowrap">
+                      <WatchBox
+                        watched
+                        label={`Watch ${r.c ? `container ${r.c.number}` : `shipment ${r.s.mbl ?? r.s.reference ?? r.s.id}`}`}
+                        title={w.own ? "Untick to stop watching" : "Untick to stop watching the PO and all its containers"}
+                        onToggle={() => setLineWatch(r, false)}
+                        onSaved={reload}
+                      />
+                      <ShipLink r={r} />
+                    </td>
+                    <td><PoLinks pos={r.s.pos} /></td>
+                    <td>{r.s.vendor}</td>
+                    <td className="whitespace-nowrap">{r.c && <VoyageTrack milestone={r.c.milestone} />} <Holds holds={r.c?.holds ?? null} /></td>
+                    <td><EtaWithSlip eta={eta(r)} first={firstEta(r)} /></td>
+                    <td className="whitespace-nowrap text-slate-600">
+                      {w.own ? watchedBy(r.c!) : `via ${w.viaPos.map((p) => `PO ${p.po_number}`).join(", ")}`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : (
+        <p className="text-sm text-slate-600">Not watching anything. Tick the box on a line in Shipments to pin it here.</p>
+      )}
+
       {atRisk.length > 0 ? (
         <section>
           <h2 className="section-title">

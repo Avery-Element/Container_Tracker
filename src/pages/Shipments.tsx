@@ -5,6 +5,7 @@ import { AWAITING_BOOKING, EditableDate, ErrorBox, EtaWithSlip, fmtDate, Holds, 
 import NewPoForm, { PaymentSelect } from "../components/NewPoForm";
 import { MILESTONES, MILESTONE_ORDER } from "../../shared/milestones";
 import { ShipLink, type Row } from "./Dashboard";
+import { lineWatch, setLineWatch, WatchBox, WATCHED_ROW, watchedBy } from "../components/Watch";
 
 type SortKey = "entered" | "eta" | "status";
 type Sort = { key: SortKey; dir: "asc" | "desc" } | null;
@@ -44,6 +45,11 @@ function sortRows(rows: Line[], sort: Sort): Line[] {
     return (x < y ? -1 : x > y ? 1 : 0) * sign;
   });
 }
+
+const isWatched = (l: Line) => (l.kind === "ship" ? lineWatch(l.r).watched : !!l.p.watched_at);
+
+/** Watched lines go first, whatever the sort; each group keeps its own order. */
+const pinWatched = (rows: Line[]) => [...rows.filter(isWatched), ...rows.filter((l) => !isWatched(l))];
 
 function SortHeader({ label, k, sort, setSort }: { label: string; k: SortKey; sort: Sort; setSort: (s: Sort) => void }) {
   const active = sort?.key === k;
@@ -119,7 +125,8 @@ export default function Shipments() {
       : milestone
         ? rows.filter((l) => l.kind === "ship" && l.r.c?.milestone === milestone)
         : [...poRows, ...rows];
-  const shown = sortRows(filtered, sort);
+  const shown = pinWatched(sortRows(filtered, sort));
+  const watchedCount = shown.filter(isWatched).length;
 
   return (
     <div className="space-y-4">
@@ -154,7 +161,7 @@ export default function Shipments() {
             <option key={m.key} value={m.key}>{m.label}</option>
           ))}
         </select>
-        <span className="text-sm text-slate-500">{loading ? "Loading…" : `${shown.length} rows`}</span>
+        <span className="text-sm text-slate-500">{loading ? "Loading…" : `${shown.length} rows${watchedCount ? `, ${watchedCount} watched` : ""}`}</span>
         <SyncAllButton onDone={reloadAll} />
         <button className="btn" onClick={() => setShowNewPo((v) => !v)} aria-expanded={showNewPo}>
           + New PO
@@ -183,9 +190,25 @@ export default function Shipments() {
             {shown.map((l) => {
               if (l.kind === "po") return <PoLine key={`po-${l.p.id}`} p={l.p} onChange={reloadPos} />;
               const r = l.r;
+              const w = lineWatch(r);
               return (
-              <tr key={`${r.s.id}-${r.c?.id ?? "x"}`}>
-                <td className="whitespace-nowrap"><ShipLink r={r} /></td>
+              <tr key={`${r.s.id}-${r.c?.id ?? "x"}`} className={w.watched ? WATCHED_ROW : ""}>
+                <td className="whitespace-nowrap">
+                  {(r.c || r.s.pos.length > 0) && (
+                    <WatchBox
+                      watched={w.watched}
+                      label={`Watch ${r.c ? `container ${r.c.number}` : `shipment ${r.s.mbl ?? r.s.reference ?? r.s.id}`}`}
+                      title={
+                        w.own || !w.watched
+                          ? w.why || "Watch: pin this line to the top and list it on the Dashboard"
+                          : `${w.why}. Unticking stops watching the PO and all its containers.`
+                      }
+                      onToggle={(next) => setLineWatch(r, next)}
+                      onSaved={reloadAll}
+                    />
+                  )}
+                  <ShipLink r={r} />
+                </td>
                 <td><PoLinks pos={r.s.pos} /></td>
                 <td className="whitespace-nowrap">{fmtDate(enteredDate(r))}</td>
                 <td className="whitespace-nowrap">{r.s.vendor}</td>
@@ -223,9 +246,17 @@ function PoLine({ p, onChange }: { p: PurchaseOrder; onChange: () => void }) {
     await api.patch(`/pos/${p.id}`, body);
     onChange();
   };
+  const watched = !!p.watched_at;
   return (
-    <tr className="[&>td]:bg-amber-50/50">
+    <tr className={watched ? WATCHED_ROW : "[&>td]:bg-amber-50/50"}>
       <td className="whitespace-nowrap">
+        <WatchBox
+          watched={watched}
+          label={`Watch PO ${p.po_number}`}
+          title={watched ? `Watched by ${watchedBy(p)}` : "Watch: pin this PO to the top, list it on the Dashboard, and keep watching its containers once booked"}
+          onToggle={(next) => api.patch(`/pos/${p.id}`, { watched: next })}
+          onSaved={onChange}
+        />
         {p.status === "open" ? (
           <Link to={`/shipments/new?po=${p.id}`} className="text-sm font-medium text-route hover:underline">
             + Book shipment
