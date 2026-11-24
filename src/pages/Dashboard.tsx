@@ -1,7 +1,7 @@
 import { Fragment } from "react";
 import { Link } from "react-router-dom";
 import { api, type Container, type Dashboard as D, type Shipment } from "../api";
-import { AWAITING_BOOKING, ContainerNumber, daysFrom, EditableDate, ErrorBox, EtaWithSlip, fmtDate, Holds, PaymentBadge, PoLinks, useApi, VoyageTrack } from "../components/ui";
+import { AWAITING_BOOKING, ContainerNumber, daysFrom, EditableDate, ErrorBox, EtaWithSlip, EtdCue, fmtDate, Holds, PaymentBadge, PoLinks, useApi, VoyageTrack } from "../components/ui";
 import { MILESTONES } from "../../shared/milestones";
 import { lineWatch, setLineWatch, WatchBox, watchedBy } from "../components/Watch";
 
@@ -103,7 +103,14 @@ export default function Dashboard() {
                     <td className="font-medium"><PoLinks pos={[p]} /></td>
                     <td>{p.vendor}</td>
                     <td className="whitespace-nowrap text-slate-600">Awaiting booking</td>
-                    <td className="whitespace-nowrap text-slate-600">{p.crd ? `Cargo ready ${fmtDate(p.crd)}` : "—"}</td>
+                    <td className="whitespace-nowrap text-slate-600">
+                      {p.crd || p.etd ? (
+                        <>
+                          {p.crd && <div>Cargo ready {fmtDate(p.crd)}</div>}
+                          {p.etd && <div className="flex items-center gap-1">ETD {fmtDate(p.etd)} {p.status === "open" && <EtdCue etd={p.etd} />}</div>}
+                        </>
+                      ) : "—"}
+                    </td>
                     <td className="whitespace-nowrap text-slate-600">{watchedBy(p)}</td>
                   </tr>
                 ))}
@@ -248,7 +255,7 @@ export default function Dashboard() {
           <div className="card overflow-x-auto">
             <table className="data">
               <thead>
-                <tr><th>PO</th><th>Vendor</th><th>Cargo ready</th><th>Payment</th></tr>
+                <tr><th>PO</th><th>Vendor</th><th>Cargo ready</th><th>ETD</th><th>Payment</th></tr>
               </thead>
               <tbody>
                 {data.pendingPos.map((p) => (
@@ -256,6 +263,7 @@ export default function Dashboard() {
                     <td className="font-medium"><PoLinks pos={[p]} /></td>
                     <td>{p.vendor}</td>
                     <td>{fmtDate(p.crd)}</td>
+                    <td className="whitespace-nowrap">{fmtDate(p.etd)} <EtdCue etd={p.etd} /></td>
                     <td><PaymentBadge status={p.payment_status} /></td>
                   </tr>
                 ))}

@@ -23,6 +23,7 @@ const TYPE_OPTIONS: { label: string; options: [string, string][] }[] = [
       ["created", HISTORY_KINDS.created],
       ["field_changed", "Any PO field change"],
       ["field_changed:crd", "Cargo ready date changes"],
+      ["field_changed:etd", "ETD changes"],
       ["field_changed:status", "PO status changes"],
       ["note", "Notes"],
       ["imported", HISTORY_KINDS.imported],

@@ -53,6 +53,7 @@ export const PO_HISTORY_FIELDS = [
   "paid_on",
   "forwarder",
   "crd",
+  "etd",
   "status",
   "description",
 ] as const;

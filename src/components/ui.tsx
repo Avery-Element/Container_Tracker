@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { etdUrgency } from "../../shared/etd";
 import { milestoneLabel } from "../../shared/milestones";
 import { PAYMENT_LABELS } from "../../shared/normalize";
 import { api } from "../api";
@@ -115,6 +116,26 @@ export function EtaWithSlip({ eta, first }: { eta: string | null | undefined; fi
           {slip > 0 ? `+${slip}d` : `−${-slip}d`}
         </span>
       ) : null}
+    </span>
+  );
+}
+
+/**
+ * Small tag beside an unbooked PO's estimated ETD: hazard yellow when it's within a week,
+ * hold red once it has passed. Shows nothing otherwise. Uses the date on this computer.
+ */
+export function EtdCue({ etd }: { etd: string | null | undefined }) {
+  const u = etdUrgency(new Date().toLocaleDateString("en-CA"), etd);
+  if (!u) return null;
+  const text = u.level === "overdue" ? `${-u.days}d late` : u.days === 0 ? "today" : `in ${u.days}d`;
+  return (
+    <span
+      title={u.level === "overdue" ? "Estimated departure has passed and the PO isn't booked yet" : "Estimated departure is within a week"}
+      className={`rounded-sm px-1 text-[11px] font-semibold tabular-nums ${
+        u.level === "overdue" ? "bg-hold text-white" : "bg-hazard text-slate-900"
+      }`}
+    >
+      {text}
     </span>
   );
 }

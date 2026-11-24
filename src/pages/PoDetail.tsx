@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, type PoDetail as PD } from "../api";
-import { EditableDate, EditableText, ErrorBox, fmtDate, useApi, VoyageTrack, ContainerNumber } from "../components/ui";
+import { EditableDate, EditableText, ErrorBox, EtdCue, fmtDate, useApi, VoyageTrack, ContainerNumber } from "../components/ui";
 import { PaymentSelect } from "../components/NewPoForm";
 import { HistoryTimeline, TRACKING_KINDS } from "../components/History";
 import { WatchBox, watchedBy } from "../components/Watch";
@@ -76,6 +76,12 @@ export default function PoDetail() {
         </Field>
         <Field label="Order date"><EditableDate value={po.order_date} onSave={save("order_date")} /></Field>
         <Field label="Cargo ready date"><EditableDate value={po.crd} onSave={save("crd")} /></Field>
+        <Field label="ETD (estimate)">
+          <span className="inline-flex items-center gap-1">
+            <EditableDate value={po.etd} onSave={save("etd")} />
+            {po.status === "open" && po.shipments.length === 0 && <EtdCue etd={po.etd} />}
+          </span>
+        </Field>
         <Field label="Payment">
           {/* PaymentSelect shows its own errors */}
           <PaymentSelect po={po} onSave={async (p) => { try { await api.patch(`/pos/${po.id}`, p); } finally { reload(); } }} />

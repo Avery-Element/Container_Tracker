@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type PoRef, type PurchaseOrder, type Shipment } from "../api";
-import { AWAITING_BOOKING, EditableDate, EditableText, ErrorBox, EtaWithSlip, fmtDate, Holds, PoLinks, TrackingDot, useApi, VoyageTrack } from "../components/ui";
+import { AWAITING_BOOKING, EditableDate, EditableText, ErrorBox, EtaWithSlip, EtdCue, fmtDate, Holds, PoLinks, TrackingDot, useApi, VoyageTrack } from "../components/ui";
 import NewPoForm, { PaymentSelect } from "../components/NewPoForm";
 import { MILESTONES, MILESTONE_ORDER } from "../../shared/milestones";
 import { ShipLink, type Row } from "./Dashboard";
@@ -311,9 +311,17 @@ function PoLine({ p, onChange }: { p: PurchaseOrder; onChange: () => void }) {
         )}
       </td>
       <td />
+      {/* Not booked yet, so the ETA column holds the cargo ready date and the rough ETD. Once booked, the row shows the shipment's ETA instead. */}
       <td className="whitespace-nowrap">
-        <span className="mr-1 text-xs text-slate-500">Cargo ready</span>
-        <EditableDate value={p.crd} onSave={(v) => patch({ crd: v })} />
+        <div className="grid grid-cols-[auto_auto] items-center justify-start gap-x-1">
+          <span className="text-xs text-slate-500">Cargo ready</span>
+          <EditableDate value={p.crd} onSave={(v) => patch({ crd: v })} />
+          <span className="text-xs text-slate-500" title="Estimated departure, before booking">ETD</span>
+          <span className="inline-flex items-center gap-1">
+            <EditableDate value={p.etd} onSave={(v) => patch({ etd: v })} />
+            {p.status === "open" && <EtdCue etd={p.etd} />}
+          </span>
+        </div>
       </td>
       <td>—</td>
       <td className="min-w-48 max-w-72 text-xs text-slate-600">

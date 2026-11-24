@@ -5,7 +5,7 @@ import { PAYMENT_STATUSES } from "../../shared/payment";
 
 export default function NewPoForm({ onCreated, onCancel }: { onCreated: () => void; onCancel: () => void }) {
   const { data: vendors } = useApi<{ id: number; name: string }[]>("/vendors");
-  const [f, setF] = useState({ po_number: "", vendor: "", vendor_pi: "", order_date: "", crd: "", payment_status: "not_paid", paid_date: "", forwarder: "", description: "" });
+  const [f, setF] = useState({ po_number: "", vendor: "", vendor_pi: "", order_date: "", crd: "", etd: "", payment_status: "not_paid", paid_date: "", forwarder: "", description: "" });
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
@@ -37,6 +37,7 @@ export default function NewPoForm({ onCreated, onCancel }: { onCreated: () => vo
       <label><span className="label">Forwarder</span><input className="input" placeholder="THI / SEKO" value={f.forwarder} onChange={set("forwarder")} /></label>
       <label><span className="label">Order date</span><input type="date" className="input" value={f.order_date} onChange={set("order_date")} /></label>
       <label><span className="label">Cargo ready date</span><input type="date" className="input" value={f.crd} onChange={set("crd")} /></label>
+      <label><span className="label">ETD (estimate)</span><input type="date" className="input" value={f.etd} onChange={set("etd")} /></label>
       <label><span className="label">Payment</span>
         <select
           className="input"

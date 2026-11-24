@@ -634,6 +634,7 @@ api.post("/pos", async (c) => {
     paid_on: pay.fields.paid_on ?? null,
     forwarder: b.forwarder || null,
     crd: b.crd || null,
+    etd: b.etd || null,
     description: b.description || null,
   };
   // The "created" entry records the starting values, so later field changes read as old -> new.
@@ -643,8 +644,8 @@ api.post("/pos", async (c) => {
       db
         .prepare(
           `INSERT INTO purchase_orders (po_number, vendor_id, vendor_pi, order_date, payment_status, deposit_paid_on, paid_on,
-             forwarder, crd, description)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             forwarder, crd, etd, description)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
           num,
@@ -656,6 +657,7 @@ api.post("/pos", async (c) => {
           initial.paid_on,
           initial.forwarder,
           initial.crd,
+          initial.etd,
           initial.description,
         ),
       db
@@ -677,6 +679,7 @@ const PO_FIELDS = [
   "paid_on",
   "forwarder",
   "crd",
+  "etd",
   "status",
   "description",
 ] as const;

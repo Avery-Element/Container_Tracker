@@ -87,6 +87,7 @@ export interface PurchaseOrder {
   paid_on?: string | null;
   forwarder: string | null;
   crd: string | null;
+  etd?: string | null;
   status: string;
   description: string | null;
   shipment_ids?: number[];

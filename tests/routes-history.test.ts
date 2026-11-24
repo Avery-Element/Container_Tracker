@@ -64,6 +64,20 @@ describe("POs", () => {
       ["vendor", "Acme", "Globex", USER],
     ]);
   });
+
+  it("saves the estimated ETD on create and edit, and logs each change", async () => {
+    const { json } = await call("POST", "/pos", { po_number: "6000ELM", etd: "2026-12-20" });
+    const id = json.id as number;
+    await call("PATCH", `/pos/${id}`, { etd: "2027-01-05" });
+    await call("PATCH", `/pos/${id}`, { etd: "" });
+    const [created, ...changes] = history(id);
+    expect(JSON.parse(created.body as string)).toMatchObject({ etd: "2026-12-20" });
+    expect(changes.map((e) => [e.field, e.old_value, e.new_value])).toEqual([
+      ["etd", "2026-12-20", "2027-01-05"],
+      ["etd", "2027-01-05", null],
+    ]);
+    expect(db.prepare(`SELECT etd FROM purchase_orders WHERE id = ?`).get(id)).toEqual({ etd: null });
+  });
 });
 
 describe("GET /pos/:id", () => {

@@ -29,6 +29,9 @@ A view of History Entries across all POs, filterable (e.g. every Payment Status 
 **Imported entry**
 The first History Entry for any PO that existed before PO History began. It records the PO's values at that moment, attributed to "system". Notes and Tracking Events the app already had before then are also brought into the PO History, marked as pre-history.
 
+**ETD (estimate)**
+A rough departure date entered by hand on a PO before it is booked, used to chase the vendor as the date gets close. It sits under the Cargo ready date on unbooked PO lines. Once the PO is booked, its line shows the shipment's ETA instead. Not the same as a shipment's ETD, which comes from the carrier.
+
 **Deposit Paid Date / Paid Date**
 The date the money actually moved, recorded on the PO itself. Separate from when someone recorded the payment status change in the app.
 

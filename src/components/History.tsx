@@ -15,6 +15,7 @@ const FIELD_LABELS: Record<string, string> = {
   paid_on: "Paid date",
   forwarder: "Forwarder",
   crd: "Cargo ready date",
+  etd: "ETD (estimate)",
   status: "Status",
   description: "Products / notes",
   eta: "ETA",
@@ -24,7 +25,7 @@ const FIELD_LABELS: Record<string, string> = {
   milestone: "Milestone",
 };
 
-const DATE_FIELDS = new Set(["order_date", "deposit_paid_on", "paid_on", "crd", "eta", "received_at"]);
+const DATE_FIELDS = new Set(["order_date", "deposit_paid_on", "paid_on", "crd", "etd", "eta", "received_at"]);
 const PO_STATUS: Record<string, string> = { open: "Awaiting booking", received: "PO received", cancelled: "PO cancelled" };
 const SHIPMENT_STATUS: Record<string, string> = { active: "Active", received: "Received", cancelled: "Cancelled" };
 

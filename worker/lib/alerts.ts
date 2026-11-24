@@ -53,7 +53,7 @@ export async function sendDigest(env: Env) {
   ).all<Record<string, string | null>>();
 
   const { results: pending } = await env.DB.prepare(
-    `SELECT po.po_number, po.crd, v.name AS vendor FROM purchase_orders po
+    `SELECT po.po_number, po.crd, po.etd, v.name AS vendor FROM purchase_orders po
      LEFT JOIN vendors v ON v.id = po.vendor_id
      WHERE po.status = 'open' AND NOT EXISTS (SELECT 1 FROM shipment_pos sp WHERE sp.po_id = po.id)
      ORDER BY po.crd IS NULL, po.crd`,
@@ -72,13 +72,13 @@ export async function sendDigest(env: Env) {
     })
     .join("");
   const pendingRows = pending
-    .map((p) => `<tr><td>${esc(p.po_number)}</td><td>${esc(p.vendor)}</td><td>${esc(p.crd ?? "")}</td></tr>`)
+    .map((p) => `<tr><td>${esc(p.po_number)}</td><td>${esc(p.vendor)}</td><td>${esc(p.crd ?? "")}</td><td>${esc(p.etd ?? "")}</td></tr>`)
     .join("");
   const style = `style="border-collapse:collapse;font:13px sans-serif" border="1" cellpadding="4"`;
   const html = `<h2 style="font-family:sans-serif">In transit (${results.length})</h2>
     <table ${style}><tr><th>ETA</th><th>Container</th><th>PO</th><th>Vendor</th><th>Carrier</th><th>Status</th><th>Holds</th><th>ELM appt</th></tr>${rows}</table>
     <h2 style="font-family:sans-serif">Awaiting booking (${pending.length})</h2>
-    <table ${style}><tr><th>PO</th><th>Vendor</th><th>CRD</th></tr>${pendingRows}</table>`;
+    <table ${style}><tr><th>PO</th><th>Vendor</th><th>CRD</th><th>ETD</th></tr>${pendingRows}</table>`;
   const date = new Date().toISOString().slice(0, 10);
   return sendEmail(env, `Container digest ${date}: ${results.length} in transit`, html);
 }
