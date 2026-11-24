@@ -218,7 +218,7 @@ export default function Shipments() {
                   ))}
                 </td>
                 <td className="whitespace-nowrap">{r.s.vendor}</td>
-                <td><PoLinks pos={r.s.pos} /></td>
+                <td className="font-semibold"><PoLinks pos={r.s.pos} /></td>
                 <td className="whitespace-nowrap">
                   {r.c ? <VoyageTrack milestone={r.c.milestone} /> : <span className="text-xs text-slate-500">{r.s.status}</span>}{" "}
                   <Holds holds={r.c?.holds ?? null} />
@@ -282,7 +282,7 @@ function PoLine({ p, onChange }: { p: PurchaseOrder; onChange: () => void }) {
         <EditableText value={p.vendor_pi} onSave={(v) => patch({ vendor_pi: v })} />
       </td>
       <td className="whitespace-nowrap">{p.vendor}</td>
-      <td className="font-medium"><PoLinks pos={[p]} /></td>
+      <td className="font-semibold"><PoLinks pos={[p]} /></td>
       <td className="whitespace-nowrap">
         <select
           className="input w-auto! py-0.5! text-xs!"
