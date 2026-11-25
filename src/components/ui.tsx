@@ -102,20 +102,45 @@ export function VoyageTrack({ milestone }: { milestone: string }) {
  * Late by more than a day (the same rule as the email alerts) is flagged in hazard yellow.
  */
 export function EtaWithSlip({ eta, first }: { eta: string | null | undefined; first: string | null | undefined }) {
-  const slip = eta && first ? daysFrom(first.slice(0, 10), eta) : null;
   return (
     <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
       {fmtDate(eta)}
-      {slip ? (
-        <span
-          title={`First published ETA: ${fmtDate(first)}`}
-          className={`rounded-sm px-1 text-[11px] font-semibold tabular-nums ${
-            slip > 1 ? "bg-hazard text-slate-900" : "text-slate-600"
-          }`}
-        >
-          {slip > 0 ? `+${slip}d` : `−${-slip}d`}
-        </span>
-      ) : null}
+      <SlipTag eta={eta} first={first} />
+    </span>
+  );
+}
+
+/** "+3d" / "−1d": how far the ETA has moved from the first published one. Nothing if it hasn't. */
+function SlipTag({ eta, first }: { eta: string | null | undefined; first: string | null | undefined }) {
+  const slip = eta && first ? daysFrom(first.slice(0, 10), eta) : null;
+  if (!slip) return null;
+  return (
+    <span
+      title={`First published ETA: ${fmtDate(first)}`}
+      className={`rounded-sm px-1 text-[11px] font-semibold tabular-nums ${slip > 1 ? "bg-hazard text-slate-900" : "text-slate-600"}`}
+    >
+      {slip > 0 ? `+${slip}d` : `−${-slip}d`}
+    </span>
+  );
+}
+
+/**
+ * Click-to-edit ETA with the same slip tag as EtaWithSlip. For shipments without live
+ * tracking; a tracked ETA comes from the carrier and is shown with EtaWithSlip instead.
+ */
+export function EditableEta({
+  eta,
+  first,
+  onSave,
+}: {
+  eta: string | null | undefined;
+  first: string | null | undefined;
+  onSave: (v: string | null) => Promise<void>;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+      <EditableDate value={eta} onSave={onSave} />
+      <SlipTag eta={eta} first={first} />
     </span>
   );
 }

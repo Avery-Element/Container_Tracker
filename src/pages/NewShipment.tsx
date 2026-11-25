@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, type PurchaseOrder } from "../api";
 import { useApi } from "../components/ui";
@@ -13,6 +13,17 @@ export default function NewShipment() {
   const [f, setF] = useState({ mode: "ocean", carrier_scac: "", mbl: "", reference: "", forwarder: "", eta: "", containers: "" });
   const [track, setTrack] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  // What the "Creating shipment" popup shows; null when nothing is being saved.
+  const [step, setStep] = useState<"saving" | "tracking" | null>(null);
+  // Set straight away on submit, so a second click is ignored even before React re-renders.
+  const submitting = useRef(false);
+  // One key per form: if "Create shipment" reaches the server twice, it returns the same shipment.
+  const clientKey = useRef(crypto.randomUUID());
+  // Booking from a PO line: start with that PO's estimated ETA.
+  const fromPo = pos?.find((p) => p.id === Number(params.get("po")));
+  useEffect(() => {
+    if (fromPo?.eta) setF((prev) => (prev.eta ? prev : { ...prev, eta: fromPo.eta!.slice(0, 10) }));
+  }, [fromPo?.eta]);
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => {
     const next = { ...f, [k]: e.target.value };
     if (k === "mbl" && !f.carrier_scac) {
@@ -28,12 +39,21 @@ export default function NewShipment() {
       className="card mx-auto max-w-3xl space-y-4 p-6"
       onSubmit={async (e) => {
         e.preventDefault();
+        if (submitting.current) return;
+        submitting.current = true;
+        setErr(null);
+        setStep("saving");
         try {
-          const { id } = await api.post<{ id: number }>("/shipments", { ...f, po_ids: poIds, containers });
-          if (track && f.mode === "ocean") await api.post(`/shipments/${id}/track`).catch(() => undefined);
+          const { id } = await api.post<{ id: number }>("/shipments", { ...f, po_ids: poIds, containers, client_key: clientKey.current });
+          if (track && f.mode === "ocean") {
+            setStep("tracking");
+            await api.post(`/shipments/${id}/track`).catch(() => undefined);
+          }
           nav(`/shipments/${id}`);
         } catch (e) {
           setErr((e as Error).message);
+          setStep(null);
+          submitting.current = false;
         }
       }}
     >
@@ -103,9 +123,33 @@ export default function NewShipment() {
         </label>
       )}
       <div className="flex items-center gap-3">
-        <button className="btn-primary">Create shipment</button>
+        <button className="btn-primary" disabled={step !== null}>{step ? "Creating…" : "Create shipment"}</button>
         {err && <span className="text-sm text-red-700">{err}</span>}
       </div>
+      {step && <CreatingPopup step={step} />}
     </form>
+  );
+}
+
+/** Covers the page while the shipment is saved and tracking starts, so nobody clicks twice. */
+function CreatingPopup({ step }: { step: "saving" | "tracking" }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4">
+      <div role="dialog" aria-modal="true" aria-labelledby="creating-title" className="w-full max-w-sm rounded-[3px] bg-ink p-6 text-white">
+        <div className="flex items-center gap-3">
+          <span aria-hidden className="size-5 shrink-0 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+          <h2 id="creating-title" className="font-display text-xl font-semibold">Creating shipment</h2>
+        </div>
+        <ol className="mt-4 space-y-2 text-sm" aria-live="polite">
+          <li className={step === "saving" ? "text-white" : "text-white/60"}>
+            {step === "saving" ? "Saving shipment…" : "Shipment saved ✓"}
+          </li>
+          {step === "tracking" && (
+            <li>Starting live tracking. The carrier lookup can take up to 30 seconds.</li>
+          )}
+        </ol>
+        <p className="mt-4 text-xs text-white/60">Please wait. You'll go to the shipment when it's done.</p>
+      </div>
+    </div>
   );
 }

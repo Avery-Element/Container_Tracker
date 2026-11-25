@@ -8,10 +8,6 @@ import { fmtDate } from "./ui";
 type Watchable = { watched_by?: string | null; watched_at?: string | null };
 type Line = { s: { pos: PoRef[] }; c: Container | null };
 
-/** Highlight for a watched row in a table: pale route-blue fill and a route-blue bar on the left edge. Rows keep their sort position. */
-export const WATCHED_ROW =
-  "[&>td]:bg-route-50 [&>td:first-child]:shadow-[inset_3px_0_0_var(--color-route)]";
-
 /** "avery, Nov 24": who ticked it (the part of the email before the @) and when. */
 export function watchedBy(w: Watchable): string {
   return `${w.watched_by?.split("@")[0] ?? "someone"}, ${fmtDate(w.watched_at)}`;
@@ -76,7 +72,7 @@ export function WatchBox({
   return (
     <input
       type="checkbox"
-      className={`mr-2 size-4 shrink-0 cursor-pointer align-[-3px] accent-route ${error ? "outline-2 outline-hold" : ""}`}
+      className={`mr-2 size-4 shrink-0 cursor-pointer align-[-3px] accent-watch ${error ? "outline-2 outline-hold" : ""}`}
       aria-label={label}
       title={error ? `Couldn't save: ${error}` : title}
       checked={watched}

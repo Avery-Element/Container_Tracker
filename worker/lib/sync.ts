@@ -18,7 +18,7 @@ import {
 import { planTracking, ttcCompany } from "../../shared/carriers";
 import { isValidContainerNumber } from "../../shared/container-number";
 import { advanceMilestone, MILESTONE_ORDER, MILESTONES, TTC_EVENTS } from "../../shared/milestones";
-import { raiseAlerts, type NewAlert } from "./alerts";
+import { raiseAlerts, sendHeldTrackingAlerts, TRACKING_GRACE_SQL, type NewAlert } from "./alerts";
 import { AFTER_DEPARTURE, isOriginEvent, isVoyageMilestone } from "../../shared/history";
 import { CARRIER, forShipmentPos, type HistoryEntry } from "./history";
 
@@ -163,8 +163,10 @@ export async function startTracking(
 export async function checkPendingTasks(env: Env): Promise<number> {
   const key = requireKey(env);
   const { results: pending } = await env.DB.prepare(
-    `SELECT * FROM shipments WHERE tracking_status='pending' AND tracking_task_id IS NOT NULL`,
-  ).all<ShipmentRow & { updated_at: string }>();
+    `SELECT *, created_at > datetime('now', ?) AS in_grace FROM shipments WHERE tracking_status='pending' AND tracking_task_id IS NOT NULL`,
+  )
+    .bind(TRACKING_GRACE_SQL)
+    .all<ShipmentRow & { updated_at: string; in_grace: number }>();
   const byTask = new Map<string, typeof pending>();
   for (const s of pending) byTask.set(s.tracking_task_id!, [...(byTask.get(s.tracking_task_id!) ?? []), s]);
 
@@ -197,6 +199,10 @@ export async function checkPendingTasks(env: Env): Promise<number> {
           .run();
         // Only the first time tracking starts for this shipment, not every re-request.
         await logForPos(env, s.id, { kind: "tracking_started", dedupe_key: `trstart:${s.id}` });
+        // A failure held during the grace period is no longer true: don't email it.
+        await env.DB.prepare(`DELETE FROM alerts WHERE shipment_id = ? AND kind = 'tracking_failed' AND emailed_at IS NULL`)
+          .bind(s.id)
+          .run();
         for (const r of ok) await applyTracking(env, s.id, r.data!);
       } else {
         const reason =
@@ -205,16 +211,27 @@ export async function checkPendingTasks(env: Env): Promise<number> {
         await env.DB.prepare(`UPDATE shipments SET tracking_status='failed', tracking_error=?, tracking_task_id=NULL WHERE id=?`)
           .bind(reason, s.id)
           .run();
-        await logForPos(env, s.id, { kind: "tracking_failed", body: reason, dedupe_key: `trfail:${s.id}:${taskId}` });
-        await raiseAlerts(env, [
-          {
-            shipmentId: s.id,
-            containerId: null,
-            kind: "tracking_failed",
-            message: `Tracking failed for ${s.mbl ?? `shipment #${s.id}`}: ${reason}`,
-            dedupeKey: `trfail:${s.id}:${taskId}`,
-          },
-        ]);
+        // A new shipment's lookup is retried hourly during the grace period: log one failure
+        // in PO History for all those tries, and hold the email until the grace period is over.
+        const grace = !!s.in_grace;
+        await logForPos(env, s.id, {
+          kind: "tracking_failed",
+          body: reason,
+          dedupe_key: grace ? `trfail:${s.id}:grace` : `trfail:${s.id}:${taskId}`,
+        });
+        await raiseAlerts(
+          env,
+          [
+            {
+              shipmentId: s.id,
+              containerId: null,
+              kind: "tracking_failed",
+              message: `Tracking failed for ${s.mbl ?? `shipment #${s.id}`}: ${reason}`,
+              dedupeKey: grace ? `trfail:${s.id}:grace` : `trfail:${s.id}:${taskId}`,
+            },
+          ],
+          { hold: grace },
+        );
       }
       done++;
     }
@@ -574,6 +591,40 @@ export async function handleWebhook(env: Env, body: TtcWebhook, raw: string) {
 
 // ---------------------------------------------------------------- cron
 
+/** Wait (briefly) for a batch task to finish, then attach its results. */
+async function collect(env: Env, taskId: string | undefined, tries: number, ms: number) {
+  if (!taskId) return;
+  for (let i = 0; i < tries; i++) {
+    await new Promise((r) => setTimeout(r, ms));
+    const task = await getBatch(env.TIMETOCARGO_API_KEY!, taskId).catch(() => null);
+    if (task?.status === "PROCESSED") break;
+  }
+  await checkPendingTasks(env);
+}
+
+/**
+ * Hourly: retry failed lookups for shipments still in their grace period (newly booked BLs
+ * often aren't in the carrier's system yet), then email the failures that are past it.
+ */
+export async function retryNewShipmentTracking(env: Env): Promise<string> {
+  if (!env.TIMETOCARGO_API_KEY) return "TIMETOCARGO_API_KEY not set";
+  const notes: string[] = [];
+  await checkPendingTasks(env);
+  const { results: young } = await env.DB.prepare(
+    `SELECT id FROM shipments WHERE status='active' AND mode='ocean' AND tracking_status='failed'
+       AND created_at > datetime('now', ?) LIMIT 50`,
+  )
+    .bind(TRACKING_GRACE_SQL)
+    .all<{ id: number }>();
+  if (young.length) {
+    const started = await startTracking(env, young.map((s) => s.id));
+    notes.push(`retried ${young.length}: ${started.message}`);
+    await collect(env, started.taskId, 9, 5000);
+  }
+  notes.push(`${await sendHeldTrackingAlerts(env)} held failure email(s) sent`);
+  return notes.join("; ");
+}
+
 /** Cron / "Sync tracking": finish pending tasks, start new tracking, refresh all, stop finished. */
 export async function syncAll(env: Env): Promise<string> {
   if (!env.TIMETOCARGO_API_KEY) return "TIMETOCARGO_API_KEY not set";
@@ -594,14 +645,7 @@ export async function syncAll(env: Env): Promise<string> {
     const started = await startTracking(env, untracked.map((s) => s.id));
     notes.push(started.message);
     // Lookups usually finish within a minute; wait briefly so one click/run collects them.
-    if (started.taskId) {
-      for (let i = 0; i < 9; i++) {
-        await new Promise((r) => setTimeout(r, 5000));
-        const task = await getBatch(env.TIMETOCARGO_API_KEY, started.taskId).catch(() => null);
-        if (task?.status === "PROCESSED") break;
-      }
-      await checkPendingTasks(env);
-    }
+    await collect(env, started.taskId, 9, 5000);
   }
 
   notes.push(`${await refreshAll(env)} updated`);

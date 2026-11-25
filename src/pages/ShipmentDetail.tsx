@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, type Container, type ShipmentDetail as SD } from "../api";
-import { ContainerNumber, daysFrom, ErrorBox, EtaWithSlip, fmtDate, Holds, PoLinks, TrackingStatus, useApi, VoyageTrack } from "../components/ui";
+import { ContainerNumber, daysFrom, EditableDate, ErrorBox, EtaWithSlip, fmtDate, Holds, PoLinks, TrackingStatus, useApi, VoyageTrack } from "../components/ui";
 import { PaymentSelect } from "../components/NewPoForm";
 import { CARRIERS } from "../../shared/carriers";
 import { MILESTONES } from "../../shared/milestones";
@@ -74,7 +74,7 @@ export default function ShipmentDetail() {
       {s.tracking_error && <ErrorBox error={`Tracking: ${s.tracking_error}`} />}
       {editing && <EditShipment s={s} onSaved={() => (setEditing(false), reload())} />}
 
-      <Route s={s} />
+      <Route s={s} onEtaSaved={reload} />
 
       <section>
         <h2 className="section-title">Containers</h2>
@@ -128,10 +128,26 @@ function prettyEvent(e: string) {
 }
 
 /** Origin and destination ports joined by the voyage, with departure and arrival under each end. */
-function Route({ s }: { s: SD }) {
+function Route({ s, onEtaSaved }: { s: SD; onEtaSaved: () => void }) {
   const slip = s.original_eta && s.eta ? daysFrom(s.original_eta.slice(0, 10), s.eta) : null;
   const departed = s.atd ? `Departed ${fmtDate(s.atd)}` : s.etd ? `Departs ${fmtDate(s.etd)}` : "Not departed yet";
-  const arrival = s.ata ? `Arrived ${fmtDate(s.ata)}` : s.eta ? `ETA ${fmtDate(s.eta)}` : "No ETA yet";
+  // Without live tracking the ETA is typed in, so it can be changed right here.
+  const arrival = s.ata ? (
+    `Arrived ${fmtDate(s.ata)}`
+  ) : s.tracking_status !== "tracking" ? (
+    <span className="inline-flex items-center gap-1">
+      ETA
+      <EditableDate
+        value={s.eta}
+        placeholder="+ set ETA"
+        onSave={async (v) => (await api.patch(`/shipments/${s.id}`, { eta: v }), onEtaSaved())}
+      />
+    </span>
+  ) : s.eta ? (
+    `ETA ${fmtDate(s.eta)}`
+  ) : (
+    "No ETA yet"
+  );
   return (
     <div className="grid grid-cols-[auto_1fr_auto] items-center gap-x-4 gap-y-1">
       <div className="font-display text-2xl font-semibold">{s.pol ?? "Origin unknown"}</div>

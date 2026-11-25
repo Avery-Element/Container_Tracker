@@ -82,6 +82,7 @@ export default function PoDetail() {
             {po.status === "open" && po.shipments.length === 0 && <EtdCue etd={po.etd} />}
           </span>
         </Field>
+        <Field label="ETA (estimate)"><EditableDate value={po.eta} onSave={save("eta")} /></Field>
         <Field label="Payment">
           {/* PaymentSelect shows its own errors */}
           <PaymentSelect po={po} onSave={async (p) => { try { await api.patch(`/pos/${po.id}`, p); } finally { reload(); } }} />

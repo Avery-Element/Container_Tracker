@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type PoRef, type PurchaseOrder, type Shipment } from "../api";
-import { AWAITING_BOOKING, EditableDate, EditableText, ErrorBox, EtaWithSlip, EtdCue, fmtDate, Holds, PoLinks, TrackingDot, useApi, VoyageTrack } from "../components/ui";
+import { AWAITING_BOOKING, EditableDate, EditableEta, EditableText, ErrorBox, EtaWithSlip, EtdCue, fmtDate, Holds, PoLinks, TrackingDot, useApi, VoyageTrack } from "../components/ui";
 import NewPoForm, { PaymentSelect } from "../components/NewPoForm";
 import { MILESTONES, MILESTONE_ORDER } from "../../shared/milestones";
 import { ShipLink, type Row } from "./Dashboard";
-import { lineWatch, setLineWatch, WatchBox, WATCHED_ROW, watchedBy } from "../components/Watch";
+import { lineWatch, setLineWatch, WatchBox, watchedBy } from "../components/Watch";
 
 type SortKey = "entered" | "eta" | "status";
 type Sort = { key: SortKey; dir: "asc" | "desc" } | null;
@@ -27,12 +27,15 @@ const SORT_VALUE: Record<SortKey, (r: Row) => string | number | null> = {
   status: (r) => (r.c ? MILESTONE_ORDER[r.c.milestone] ?? null : null),
 };
 
-// Unbooked POs have no ETA yet (blank → bottom); by status they sort ahead of "Booked".
+// Unbooked POs sort by their hand-entered ETA (blank → bottom); by status they sort ahead of "Booked".
 const PO_SORT_VALUE: Record<SortKey, (p: PurchaseOrder) => string | number | null> = {
   entered: (p) => p.order_date,
-  eta: () => null,
+  eta: (p) => p.eta ?? null,
   status: () => -1,
 };
+
+/** Soonest arrival first, until someone clicks a column heading. */
+const DEFAULT_SORT: Sort = { key: "eta", dir: "asc" };
 
 function sortRows(rows: Line[], sort: Sort): Line[] {
   if (!sort) return rows;
@@ -47,6 +50,19 @@ function sortRows(rows: Line[], sort: Sort): Line[] {
 }
 
 const isWatched = (l: Line) => (l.kind === "ship" ? lineWatch(l.r).watched : !!l.p.watched_at);
+
+type Shade = "watched" | "tracked" | "booked" | undefined;
+
+/**
+ * Row colour (styles in index.css): watched purple, live tracking blue, booked yellow.
+ * Unbooked POs and received or cancelled lines stay white.
+ */
+function lineShade(l: Line): Shade {
+  if (isWatched(l)) return "watched";
+  if (l.kind === "po") return undefined;
+  if (l.r.s.status !== "active" || l.r.c?.milestone === "received") return undefined;
+  return l.r.s.tracking_status === "tracking" ? "tracked" : "booked";
+}
 
 function SortHeader({ label, k, sort, setSort }: { label: string; k: SortKey; sort: Sort; setSort: (s: Sort) => void }) {
   const active = sort?.key === k;
@@ -80,7 +96,7 @@ export default function Shipments() {
   const milestone = params.get("milestone") ?? "";
   const setMilestone = (m: string) =>
     setParams((p) => (m ? p.set("milestone", m) : p.delete("milestone"), p), { replace: true });
-  const [sort, setSort] = useState<Sort>(null);
+  const [sort, setSort] = useState<Sort>(DEFAULT_SORT);
   const [showNewPo, setShowNewPo] = useState(false);
   useEffect(() => {
     const t = setTimeout(() => {
@@ -193,22 +209,32 @@ export default function Shipments() {
                 reload();
               };
               return (
-              <tr key={`${r.s.id}-${r.c?.id ?? "x"}`} className={w.watched ? WATCHED_ROW : ""}>
+              <tr key={`${r.s.id}-${r.c?.id ?? "x"}`} data-shade={lineShade(l)}>
                 <td className="whitespace-nowrap">
-                  {(r.c || r.s.pos.length > 0) && (
-                    <WatchBox
-                      watched={w.watched}
-                      label={`Watch ${r.c ? `container ${r.c.number}` : `shipment ${r.s.mbl ?? r.s.reference ?? r.s.id}`}`}
-                      title={
-                        w.own || !w.watched
-                          ? w.why || "Watch: highlight this line and list it on the Dashboard"
-                          : `${w.why}. Unticking stops watching the PO and all its containers.`
-                      }
-                      onToggle={(next) => setLineWatch(r, next)}
-                      onSaved={reloadAll}
-                    />
-                  )}
-                  {fmtDate(enteredDate(r))}
+                  <div className="flex items-start">
+                    {(r.c || r.s.pos.length > 0) && (
+                      <WatchBox
+                        watched={w.watched}
+                        label={`Watch ${r.c ? `container ${r.c.number}` : `shipment ${r.s.mbl ?? r.s.reference ?? r.s.id}`}`}
+                        title={
+                          w.own || !w.watched
+                            ? w.why || "Watch: highlight this line and list it on the Dashboard"
+                            : `${w.why}. Unticking stops watching the PO and all its containers.`
+                        }
+                        onToggle={(next) => setLineWatch(r, next)}
+                        onSaved={reloadAll}
+                      />
+                    )}
+                    <div>
+                      {r.s.pos.length
+                        ? r.s.pos.map((po) => (
+                            <div key={po.id} title={r.s.pos.length > 1 ? `PO ${po.po_number}` : undefined}>
+                              <EditableDate value={po.order_date} onSave={(v) => savePo(po)({ order_date: v })} />
+                            </div>
+                          ))
+                        : fmtDate(enteredDate(r))}
+                    </div>
+                  </div>
                 </td>
                 <td className="whitespace-nowrap text-xs">
                   {r.s.pos.map((po) => (
@@ -238,7 +264,20 @@ export default function Shipments() {
                   {r.s.mode === "ocean" && <TrackingDot status={r.s.tracking_status} error={r.s.tracking_error} />}
                 </td>
                 <td>{r.c && <PalletsBox id={r.c.id} number={r.c.number} checked={!!r.c.pallets} onSaved={reload} />}</td>
-                <td><EtaWithSlip eta={r.c?.eta ?? r.s.eta} first={firstEta(r)} /></td>
+                <td>
+                  {/* A live-tracked ETA comes from the carrier; others are typed in. */}
+                  {r.s.tracking_status === "tracking" ? (
+                    <span title="Set by live tracking">
+                      <EtaWithSlip eta={r.c?.eta ?? r.s.eta} first={firstEta(r)} />
+                    </span>
+                  ) : (
+                    <EditableEta
+                      eta={r.c?.eta ?? r.s.eta}
+                      first={firstEta(r)}
+                      onSave={async (v) => (await api.patch(`/shipments/${r.s.id}`, { eta: v }), reload())}
+                    />
+                  )}
+                </td>
                 <td className="whitespace-nowrap">
                   {r.c ? (
                     <EditableDate
@@ -267,7 +306,7 @@ function PoLine({ p, onChange }: { p: PurchaseOrder; onChange: () => void }) {
   };
   const watched = !!p.watched_at;
   return (
-    <tr className={watched ? WATCHED_ROW : "[&>td]:bg-amber-50/50"}>
+    <tr data-shade={watched ? "watched" : undefined}>
       <td className="whitespace-nowrap">
         <WatchBox
           watched={watched}
@@ -276,7 +315,7 @@ function PoLine({ p, onChange }: { p: PurchaseOrder; onChange: () => void }) {
           onToggle={(next) => api.patch(`/pos/${p.id}`, { watched: next })}
           onSaved={onChange}
         />
-        {fmtDate(p.order_date)}
+        <EditableDate value={p.order_date} onSave={(v) => patch({ order_date: v })} />
       </td>
       <td className="whitespace-nowrap text-xs">
         <EditableText value={p.vendor_pi} onSave={(v) => patch({ vendor_pi: v })} />
@@ -311,7 +350,7 @@ function PoLine({ p, onChange }: { p: PurchaseOrder; onChange: () => void }) {
         )}
       </td>
       <td />
-      {/* Not booked yet, so the ETA column holds the cargo ready date and the rough ETD. Once booked, the row shows the shipment's ETA instead. */}
+      {/* Not booked yet, so the ETA column holds the cargo ready date and the rough ETD and ETA. Once booked, the row shows the shipment's ETA instead. */}
       <td className="whitespace-nowrap">
         <div className="grid grid-cols-[auto_auto] items-center justify-start gap-x-1">
           <span className="text-xs text-slate-500">Cargo ready</span>
@@ -321,6 +360,8 @@ function PoLine({ p, onChange }: { p: PurchaseOrder; onChange: () => void }) {
             <EditableDate value={p.etd} onSave={(v) => patch({ etd: v })} />
             {p.status === "open" && <EtdCue etd={p.etd} />}
           </span>
+          <span className="text-xs text-slate-500" title="Estimated arrival, before booking">ETA</span>
+          <EditableDate value={p.eta} onSave={(v) => patch({ eta: v })} />
         </div>
       </td>
       <td>—</td>

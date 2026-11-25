@@ -27,10 +27,12 @@
 	"workers_dev": false,
 	"preview_urls": false,
 	"triggers": {
-		// every 6h refresh; 15:00 UTC = 7am Pacific (PST) daily digest
+		// every 6h refresh; 15:00 UTC = 7am Pacific (PST) daily digest;
+		// :30 every hour = retry new shipments' failed lookups and send held "Tracking failed" emails
 		"crons": [
 			"0 */6 * * *",
-			"0 15 * * *"
+			"0 15 * * *",
+			"30 * * * *"
 		]
 	},
 	"vars": {

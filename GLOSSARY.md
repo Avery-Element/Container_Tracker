@@ -30,12 +30,18 @@ A view of History Entries across all POs, filterable (e.g. every Payment Status 
 The first History Entry for any PO that existed before PO History began. It records the PO's values at that moment, attributed to "system". Notes and Tracking Events the app already had before then are also brought into the PO History, marked as pre-history.
 
 **ETD (estimate)**
-A rough departure date entered by hand on a PO before it is booked, used to chase the vendor as the date gets close. It sits under the Cargo ready date on unbooked PO lines. Once the PO is booked, its line shows the shipment's ETA instead. Not the same as a shipment's ETD, which comes from the carrier.
+A rough departure date entered by hand on a PO before it is booked, used to chase the vendor as the date gets close. It sits under the Cargo ready date on unbooked PO lines. Once the PO is booked, its line shows the shipment's dates instead. Not the same as a shipment's ETD, which comes from the carrier.
+
+**ETA (estimate)**
+A rough arrival date entered by hand on a PO before it is booked, so every line on the Shipments table has an ETA to sort by. It sits under the ETD (estimate) on unbooked PO lines, and fills in the New shipment form's ETA when the PO is booked. Not the same as a shipment's ETA, which is typed in on the shipment or comes from the carrier once tracking is live.
 
 **Deposit Paid Date / Paid Date**
 The date the money actually moved, recorded on the PO itself. Separate from when someone recorded the payment status change in the app.
 
 ## Tracking
+
+**Tracking grace period**
+The first 2 hours after a shipment is created. A newly booked BL often isn't in the carrier's system yet, so a failed carrier lookup in this time is retried hourly and the "Tracking failed" email is held. The email goes out only if tracking still isn't live once the 2 hours are up.
 
 **Tracking Event**
 A milestone reported by the carrier or terminal through tracking (e.g. vessel departed, discharged). It belongs to a Shipment or Container, not to a PO.

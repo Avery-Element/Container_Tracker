@@ -65,6 +65,16 @@ describe("POs", () => {
     ]);
   });
 
+  it("saves the estimated ETA on create and edit, and logs each change", async () => {
+    const { json } = await call("POST", "/pos", { po_number: "6001ELM", eta: "2027-01-20" });
+    const id = json.id as number;
+    expect(db.prepare(`SELECT eta FROM purchase_orders WHERE id = ?`).get(id)).toEqual({ eta: "2027-01-20" });
+    await call("PATCH", `/pos/${id}`, { eta: "2027-01-25" });
+    expect(history(id).filter((e) => e.kind === "field_changed").map((e) => [e.field, e.old_value, e.new_value])).toEqual([
+      ["eta", "2027-01-20", "2027-01-25"],
+    ]);
+  });
+
   it("saves the estimated ETD on create and edit, and logs each change", async () => {
     const { json } = await call("POST", "/pos", { po_number: "6000ELM", etd: "2026-12-20" });
     const id = json.id as number;
@@ -224,6 +234,26 @@ describe("shipments", () => {
   it("logs linking on each PO at creation, listing the containers", async () => {
     const { json } = await call("POST", "/shipments", { po_ids: [1, 1], mbl: "cosu999", containers: ["tghu5303645"] });
     expect(history(1)).toMatchObject([{ kind: "linked", shipment_id: json.id, shipment_label: "COSU999", body: "Containers: TGHU5303645" }]);
+  });
+
+  it("creates one shipment when the same form is submitted twice", async () => {
+    const body = { po_ids: [1], mbl: "COSU999", containers: ["TGHU5303645"], client_key: "form-1" };
+    const [a, b] = await Promise.all([call("POST", "/shipments", body), call("POST", "/shipments", body)]);
+    expect(a.json.id).toBe(b.json.id);
+    expect(db.prepare(`SELECT count(*) AS n FROM shipments WHERE mbl = 'COSU999'`).get()).toEqual({ n: 1 });
+    expect(history(1).filter((e) => e.kind === "linked")).toHaveLength(1);
+    // A different form makes a new shipment.
+    const c = await call("POST", "/shipments", { ...body, client_key: "form-2" });
+    expect(c.json.id).not.toBe(a.json.id);
+  });
+
+  it("copies a typed-in ETA to containers tracking has never filled", async () => {
+    db.exec(`UPDATE containers SET eta = '2026-12-01', first_synced_at = datetime('now') WHERE id = 101`);
+    await call("PATCH", "/shipments/10", { eta: "2026-12-09" });
+    expect(db.prepare(`SELECT id, eta FROM containers WHERE shipment_id = 10 ORDER BY id`).all()).toEqual([
+      { id: 100, eta: "2026-12-09" },
+      { id: 101, eta: "2026-12-01" },
+    ]);
   });
 
   it("logs linking a PO to an existing shipment once", async () => {

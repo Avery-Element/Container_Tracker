@@ -3,7 +3,7 @@ import type { Env } from "./env";
 import { api } from "./routes/api";
 import { verifyAccess } from "./lib/access";
 import { verifyWebhookSignature } from "./lib/timetocargo";
-import { handleWebhook, syncAll } from "./lib/sync";
+import { handleWebhook, retryNewShipmentTracking, syncAll } from "./lib/sync";
 import { sendDigest } from "./lib/alerts";
 
 const app = new Hono<{ Bindings: Env; Variables: { user: string } }>();
@@ -64,6 +64,12 @@ export default {
         (async () => {
           console.log("sync:", await syncAll(env).catch((e) => String(e)));
           await sendDigest(env);
+        })(),
+      );
+    } else if (event.cron === "30 * * * *") {
+      ctx.waitUntil(
+        (async () => {
+          console.log("retry:", await retryNewShipmentTracking(env).catch((e) => String(e)));
         })(),
       );
     } else {

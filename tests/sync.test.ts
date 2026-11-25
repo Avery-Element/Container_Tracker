@@ -1,7 +1,8 @@
 import { createHmac } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { applyTracking } from "../worker/lib/sync";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { applyTracking, checkPendingTasks } from "../worker/lib/sync";
+import { sendHeldTrackingAlerts } from "../worker/lib/alerts";
 import { verifyWebhookSignature, type TtcEvent, type TtcTrackingData } from "../worker/lib/timetocargo";
 import type { Env } from "../worker/env";
 import { fakeD1, freshDb } from "./helpers/d1";
@@ -261,5 +262,81 @@ describe("webhook signature", () => {
     expect(await verifyWebhookSignature(secret, body + " ", `sha256=${hex}`, ts, now)).toBe(false);
     expect(await verifyWebhookSignature("other", body, `sha256=${hex}`, ts, now)).toBe(false);
     expect(await verifyWebhookSignature(secret, body, `sha256=${hex}`, ts, now + 60 * 60_000)).toBe(false);
+  });
+});
+
+// A newly booked BL often isn't in the carrier's system yet: hold the "Tracking failed" email
+// for the 2-hour grace period, and drop it if tracking goes live in that time.
+describe("tracking grace period", () => {
+  let emails: string[];
+  let result: { status: string; data: TtcTrackingData | null };
+
+  beforeEach(() => {
+    emails = [];
+    result = { status: "INFO_NOT_FOUND", data: null };
+    env = { ...env, TIMETOCARGO_API_KEY: "k", RESEND_API_KEY: "r", ALERT_TO: "ops@example.com" } as Env;
+    db.exec(`INSERT INTO purchase_orders (id, po_number) VALUES (1, '5871ELM');
+             INSERT INTO shipment_pos (shipment_id, po_id) VALUES (1, 1);
+             UPDATE shipments SET tracking_status = 'pending', tracking_task_id = 'T1' WHERE id = 1;`);
+    vi.stubGlobal("fetch", async (url: string | URL, init?: RequestInit) => {
+      if (String(url).startsWith("https://api.resend.com")) {
+        emails.push(JSON.parse(String(init!.body)).subject);
+        return new Response("{}");
+      }
+      return new Response(
+        JSON.stringify({
+          status: "OK",
+          data: {
+            task_id: "T1",
+            status: "PROCESSED",
+            results: [{ success: true, status_description: null, request: { company: "x", track_number: { value: "EGLV1" } }, ...result }],
+          },
+        }),
+      );
+    });
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  const failures = () => db.prepare(`SELECT count(*) AS n FROM po_history WHERE kind = 'tracking_failed'`).get();
+  const unsent = () => db.prepare(`SELECT count(*) AS n FROM alerts WHERE emailed_at IS NULL`).get();
+  const retry = (task: string) =>
+    db.exec(`UPDATE shipments SET tracking_status = 'pending', tracking_task_id = '${task}' WHERE id = 1`);
+
+  it("holds the email for a new shipment and logs one failure across retries", async () => {
+    await checkPendingTasks(env);
+    retry("T2");
+    await checkPendingTasks(env);
+    expect(emails).toEqual([]);
+    expect(unsent()).toEqual({ n: 1 });
+    expect(failures()).toEqual({ n: 1 });
+    // Still inside the 2 hours: nothing to send yet.
+    expect(await sendHeldTrackingAlerts(env)).toBe(0);
+  });
+
+  it("emails once the shipment is past 2 hours and still not tracking", async () => {
+    await checkPendingTasks(env);
+    db.exec(`UPDATE shipments SET created_at = datetime('now', '-3 hours') WHERE id = 1`);
+    expect(await sendHeldTrackingAlerts(env)).toBe(1);
+    expect(emails).toEqual(["Container alert: Tracking failed for EGLV1: EGLV1: INFO_NOT_FOUND"]);
+    expect(unsent()).toEqual({ n: 0 });
+    expect(await sendHeldTrackingAlerts(env)).toBe(0);
+  });
+
+  it("drops the held email when tracking goes live", async () => {
+    await checkPendingTasks(env);
+    retry("T2");
+    result = { status: "OK", data: data(departed) };
+    await checkPendingTasks(env);
+    db.exec(`UPDATE shipments SET created_at = datetime('now', '-3 hours') WHERE id = 1`);
+    expect(await sendHeldTrackingAlerts(env)).toBe(0);
+    expect(emails).toEqual([]);
+    expect(alerts().filter((a) => a.kind === "tracking_failed")).toEqual([]);
+  });
+
+  it("emails straight away for a shipment older than 2 hours", async () => {
+    db.exec(`UPDATE shipments SET created_at = datetime('now', '-3 hours') WHERE id = 1`);
+    await checkPendingTasks(env);
+    expect(emails).toHaveLength(1);
   });
 });

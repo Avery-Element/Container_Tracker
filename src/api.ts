@@ -88,6 +88,8 @@ export interface PurchaseOrder {
   forwarder: string | null;
   crd: string | null;
   etd?: string | null;
+  /** Rough ETA entered by hand before booking. */
+  eta?: string | null;
   status: string;
   description: string | null;
   shipment_ids?: number[];

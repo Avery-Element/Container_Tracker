@@ -171,23 +171,39 @@ api.post("/shipments", async (c) => {
     forwarder?: string;
     eta?: string;
     containers?: string[];
+    /** One per New shipment form: a repeat of the same request returns the shipment already made. */
+    client_key?: string;
   }>();
   const carrier = carrierByScac(body.carrier_scac) ?? carrierFromMbl(body.mbl);
   const db = c.env.DB;
-  const s = await db.prepare(
-    `INSERT INTO shipments (mode, carrier_name, carrier_scac, mbl, reference, forwarder, eta, original_eta, original_eta_source)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, CASE WHEN ?7 IS NULL THEN NULL ELSE 'manual' END) RETURNING id`,
-  )
-    .bind(
-      body.mode ?? "ocean",
-      carrier?.name ?? null,
-      carrier?.scac ?? null,
-      body.mbl?.trim().toUpperCase() || null,
-      body.reference?.trim() || null,
-      body.forwarder?.trim() || null,
-      body.eta || null,
+  const key = body.client_key?.trim() || null;
+  const existing = () =>
+    key ? db.prepare(`SELECT id FROM shipments WHERE client_key = ?`).bind(key).first<{ id: number }>() : null;
+  const made = await existing();
+  if (made) return c.json({ id: made.id }, 200);
+  let s: { id: number } | null;
+  try {
+    s = await db.prepare(
+      `INSERT INTO shipments (mode, carrier_name, carrier_scac, mbl, reference, forwarder, eta, original_eta, original_eta_source, client_key)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, CASE WHEN ?7 IS NULL THEN NULL ELSE 'manual' END, ?8) RETURNING id`,
     )
-    .first<{ id: number }>();
+      .bind(
+        body.mode ?? "ocean",
+        carrier?.name ?? null,
+        carrier?.scac ?? null,
+        body.mbl?.trim().toUpperCase() || null,
+        body.reference?.trim() || null,
+        body.forwarder?.trim() || null,
+        body.eta || null,
+        key,
+      )
+      .first<{ id: number }>();
+  } catch (e) {
+    // Two requests with the same key raced: the other one made the shipment.
+    const raced = await existing();
+    if (raced) return c.json({ id: raced.id }, 200);
+    throw e;
+  }
   const id = s!.id;
   const numbers = [...new Set((body.containers ?? []).map(normalizeContainerNumber).filter(Boolean))];
   const stmts: D1PreparedStatement[] = numbers.map((n) =>
@@ -260,6 +276,14 @@ api.patch("/shipments/:id", async (c) => {
         .bind(id),
     );
   stmts.push(db.prepare(`UPDATE shipments SET ${sets.join(", ")}, updated_at = datetime('now') WHERE id = ?`).bind(...binds, id));
+  // The Shipments table shows each container's ETA. Containers tracking has never filled take a typed-in ETA too;
+  // tracked ones keep the carrier's.
+  if ("eta" in body)
+    stmts.push(
+      db
+        .prepare(`UPDATE containers SET eta = ?, updated_at = datetime('now') WHERE shipment_id = ? AND first_synced_at IS NULL`)
+        .bind(body.eta || null, id),
+    );
   await db.batch(stmts);
   if (body.status === "received" || body.status === "cancelled") await stopTracking(c.env, id);
   return c.json({ ok: true });
@@ -635,6 +659,7 @@ api.post("/pos", async (c) => {
     forwarder: b.forwarder || null,
     crd: b.crd || null,
     etd: b.etd || null,
+    eta: b.eta || null,
     description: b.description || null,
   };
   // The "created" entry records the starting values, so later field changes read as old -> new.
@@ -644,8 +669,8 @@ api.post("/pos", async (c) => {
       db
         .prepare(
           `INSERT INTO purchase_orders (po_number, vendor_id, vendor_pi, order_date, payment_status, deposit_paid_on, paid_on,
-             forwarder, crd, etd, description)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             forwarder, crd, etd, eta, description)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
           num,
@@ -658,6 +683,7 @@ api.post("/pos", async (c) => {
           initial.forwarder,
           initial.crd,
           initial.etd,
+          initial.eta,
           initial.description,
         ),
       db
@@ -680,6 +706,7 @@ const PO_FIELDS = [
   "forwarder",
   "crd",
   "etd",
+  "eta",
   "status",
   "description",
 ] as const;

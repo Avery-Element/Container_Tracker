@@ -10,8 +10,14 @@ export interface NewAlert {
   dedupeKey: string;
 }
 
-/** Store alerts (deduped) and email the ones that are new. */
-export async function raiseAlerts(env: Env, alerts: NewAlert[]): Promise<number> {
+/**
+ * How long a new shipment gets before a failed carrier lookup is emailed. Newly booked
+ * BLs often aren't in the carrier's system yet; the hourly job retries during this time.
+ */
+export const TRACKING_GRACE_SQL = "-2 hours";
+
+/** Store alerts (deduped) and email the ones that are new. With `hold`, store them only; sendHeldTrackingAlerts emails them later. */
+export async function raiseAlerts(env: Env, alerts: NewAlert[], opts: { hold?: boolean } = {}): Promise<number> {
   const fresh: NewAlert[] = [];
   for (const a of alerts) {
     const r = await env.DB.prepare(
@@ -21,8 +27,34 @@ export async function raiseAlerts(env: Env, alerts: NewAlert[]): Promise<number>
       .run();
     if (r.meta.changes > 0) fresh.push(a);
   }
-  if (fresh.length === 0) return 0;
+  if (fresh.length === 0 || opts.hold) return fresh.length;
+  await emailAlerts(env, fresh);
+  return fresh.length;
+}
 
+/**
+ * Email held "Tracking failed" alerts once their shipment is past the grace period and
+ * tracking still isn't live. Alerts for shipments that went live are deleted when that happens.
+ */
+export async function sendHeldTrackingAlerts(env: Env): Promise<number> {
+  const { results } = await env.DB.prepare(
+    `SELECT a.shipment_id, a.container_id, a.kind, a.message, a.dedupe_key FROM alerts a
+     JOIN shipments s ON s.id = a.shipment_id
+     WHERE a.kind = 'tracking_failed' AND a.emailed_at IS NULL
+       AND s.created_at <= datetime('now', ?) AND COALESCE(s.tracking_status, '') <> 'tracking'
+     ORDER BY a.id`,
+  )
+    .bind(TRACKING_GRACE_SQL)
+    .all<{ shipment_id: number; container_id: number | null; kind: NewAlert["kind"]; message: string; dedupe_key: string }>();
+  if (!results.length) return 0;
+  await emailAlerts(
+    env,
+    results.map((r) => ({ shipmentId: r.shipment_id, containerId: r.container_id, kind: r.kind, message: r.message, dedupeKey: r.dedupe_key })),
+  );
+  return results.length;
+}
+
+async function emailAlerts(env: Env, fresh: NewAlert[]) {
   const subject =
     fresh.length === 1 ? `Container alert: ${fresh[0].message}` : `Container alerts: ${fresh.length} updates`;
   const html = `<p>${fresh
@@ -37,7 +69,6 @@ export async function raiseAlerts(env: Env, alerts: NewAlert[]): Promise<number>
         .bind(a.dedupeKey)
         .run();
   }
-  return fresh.length;
 }
 
 /** Daily digest of all active shipments, sorted by ETA. */
